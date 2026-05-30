@@ -1,0 +1,28 @@
+# Core ML/NLP
+sentence-transformers>=2.2.0
+catboost>=1.2.0
+scikit-learn>=1.3.0
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Telegram Bot
+aiogram>=3.0.0
+
+# SHAP explainability
+shap>=0.42.0
+
+# Deep Learning (optional, for RuBERT fine-tuning)
+torch>=2.0.0
+transformers>=4.30.0
+accelerate>=0.20.0
+
+# Data loading (optional)
+kagglehub>=0.1.0
+
+# Better lemmatization (optional)
+# pymorphy2>=0.9.1
+# natasha>=1.5.0
