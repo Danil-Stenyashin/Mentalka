@@ -1,73 +1,73 @@
 """
-Скрипт для загрузки датасета "Suicide and Depression Detection" с Kaggle.
+РЎРєСЂРёРїС‚ РґР»СЏ Р·Р°РіСЂСѓР·РєРё РґР°С‚Р°СЃРµС‚Р° "Suicide and Depression Detection" СЃ Kaggle.
 
-Требования:
+РўСЂРµР±РѕРІР°РЅРёСЏ:
     pip install kagglehub pandas
 
-Использование:
+РСЃРїРѕР»СЊР·РѕРІР°РЅРёРµ:
     python kaggle_loader.py
     
-Или вручную:
-    1. Скачайте с https://www.kaggle.com/datasets/nikhileswarkomati/suicide-watch
-    2. Положите Suicide_Detection.csv в папку проекта
-    3. Запустите: python run_all.py
+РР»Рё РІСЂСѓС‡РЅСѓСЋ:
+    1. РЎРєР°С‡Р°Р№С‚Рµ СЃ https://www.kaggle.com/datasets/nikhileswarkomati/suicide-watch
+    2. РџРѕР»РѕР¶РёС‚Рµ Suicide_Detection.csv РІ РїР°РїРєСѓ РїСЂРѕРµРєС‚Р°
+    3. Р—Р°РїСѓСЃС‚РёС‚Рµ: python run_all.py
 """
 
 import os
 import sys
 
 print("=" * 60)
-print("ЗАГРУЗКА ДАТАСЕТА С KAGGLE")
+print("Р—РђР“Р РЈР—РљРђ Р”РђРўРђРЎР•РўРђ РЎ KAGGLE")
 print("=" * 60)
 
 try:
     import kagglehub
-    print("\n[1/3] Подключение к KaggleHub...")
+    print("\n[1/3] РџРѕРґРєР»СЋС‡РµРЅРёРµ Рє KaggleHub...")
     
-    # Скачиваем датасет
+    # РЎРєР°С‡РёРІР°РµРј РґР°С‚Р°СЃРµС‚
     path = kagglehub.dataset_download("nikhileswarkomati/suicide-watch")
-    print(f"       Датасет загружен: {path}")
+    print(f"       Р”Р°С‚Р°СЃРµС‚ Р·Р°РіСЂСѓР¶РµРЅ: {path}")
     
-    # Ищем CSV
+    # РС‰РµРј CSV
     import glob
     csv_files = glob.glob(os.path.join(path, "*.csv"))
     
     if csv_files:
         csv_path = csv_files[0]
-        print(f"\n[2/3] Найден CSV: {os.path.basename(csv_path)}")
+        print(f"\n[2/3] РќР°Р№РґРµРЅ CSV: {os.path.basename(csv_path)}")
         
-        # Копируем в проект
+        # РљРѕРїРёСЂСѓРµРј РІ РїСЂРѕРµРєС‚
         import shutil
         target = "Suicide_Detection.csv"
         shutil.copy2(csv_path, target)
-        print(f"       Скопировано: {target}")
+        print(f"       РЎРєРѕРїРёСЂРѕРІР°РЅРѕ: {target}")
         
-        # Проверяем
+        # РџСЂРѕРІРµСЂСЏРµРј
         import pandas as pd
         df = pd.read_csv(target)
-        print(f"\n[3/3] Проверка датасета:")
-        print(f"       Строк: {len(df)}")
-        print(f"       Колонки: {list(df.columns)}")
-        print(f"       Распределение:\n{df.iloc[:, -1].value_counts()}")
+        print(f"\n[3/3] РџСЂРѕРІРµСЂРєР° РґР°С‚Р°СЃРµС‚Р°:")
+        print(f"       РЎС‚СЂРѕРє: {len(df)}")
+        print(f"       РљРѕР»РѕРЅРєРё: {list(df.columns)}")
+        print(f"       Р Р°СЃРїСЂРµРґРµР»РµРЅРёРµ:\n{df.iloc[:, -1].value_counts()}")
         
         print(f"\n{'='*60}")
-        print(f"ГОТОВО! Теперь запустите: python run_all.py")
+        print(f"Р“РћРўРћР’Рћ! РўРµРїРµСЂСЊ Р·Р°РїСѓСЃС‚РёС‚Рµ: python run_all.py")
         print(f"{'='*60}")
         
     else:
-        print("       CSV не найден в загруженном архиве")
-        print(f"       Файлы: {os.listdir(path)}")
+        print("       CSV РЅРµ РЅР°Р№РґРµРЅ РІ Р·Р°РіСЂСѓР¶РµРЅРЅРѕРј Р°СЂС…РёРІРµ")
+        print(f"       Р¤Р°Р№Р»С‹: {os.listdir(path)}")
         
 except ImportError:
-    print("\n? kagglehub не установлен.")
-    print("Установите: pip install kagglehub")
-    print("\nИли скачайте вручную:")
+    print("\n? kagglehub РЅРµ СѓСЃС‚Р°РЅРѕРІР»РµРЅ.")
+    print("РЈСЃС‚Р°РЅРѕРІРёС‚Рµ: pip install kagglehub")
+    print("\nРР»Рё СЃРєР°С‡Р°Р№С‚Рµ РІСЂСѓС‡РЅСѓСЋ:")
     print("  https://www.kaggle.com/datasets/nikhileswarkomati/suicide-watch")
-    print("  Положите Suicide_Detection.csv в эту папку")
+    print("  РџРѕР»РѕР¶РёС‚Рµ Suicide_Detection.csv РІ СЌС‚Сѓ РїР°РїРєСѓ")
     sys.exit(1)
     
 except Exception as e:
-    print(f"\n? Ошибка: {e}")
-    print("\nСкачайте вручную:")
+    print(f"\n? РћС€РёР±РєР°: {e}")
+    print("\nРЎРєР°С‡Р°Р№С‚Рµ РІСЂСѓС‡РЅСѓСЋ:")
     print("  https://www.kaggle.com/datasets/nikhileswarkomati/suicide-watch")
     sys.exit(1)

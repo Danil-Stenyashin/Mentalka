@@ -1,421 +1,491 @@
 """
-Telegram-бот для анализа депрессивных и суицидальных текстов.
+bot_v2.py  --  Telegram-Р±РѕС‚ v2 СЃ С‚СЂРµРјСЏ СѓР»СѓС‡С€РµРЅРёСЏРјРё:
 
-Гибридная модель:
-- sentence-transformers для семантических эмбеддингов
-- CatBoost для классификации
-- Лингвистические признаки из feature_extractor.py
+  #3  Р’СЂРµРјРµРЅРЅРѕР№ Р°РЅР°Р»РёР· (temporal tracking):
+      РµСЃР»Рё РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ РѕС‚РїСЂР°РІРёР» 2+ СЃРѕРѕР±С‰РµРЅРёСЏ СЃ РІС‹СЃРѕРєРёРј СЂРёСЃРєРѕРј
+      Р·Р° РїРѕСЃР»РµРґРЅРёРµ 30 РјРёРЅСѓС‚ -- РѕС‚РїСЂР°РІР»СЏРµС‚СЃСЏ СЂР°СЃС€РёСЂРµРЅРЅРѕРµ РїСЂРµРґСѓРїСЂРµР¶РґРµРЅРёРµ.
 
-Команды:
-/start - начало работы
-/help - справка
-/stats - статистика анализов (анонимная)
-/about - о модели
+  #4  NLI-РєРѕРјРїРѕРЅРµРЅС‚ (РёР· feature_extractor_v2.py):
+      scope-aware РѕС‚СЂРёС†Р°РЅРёРµ СЃРЅРёР¶Р°РµС‚ false-positive РЅР° С„СЂР°Р·Р°С…
+      "СЏ РЅРµ С…РѕС‡Сѓ СѓРјРёСЂР°С‚СЊ", "not suicidal", etc.
+
+  #5  РџРѕРґРґРµСЂР¶РєР° РѕС‚РєР°Р»РёР±СЂРѕРІР°РЅРЅРѕР№ РјРѕРґРµР»Рё (calibration.py):
+      РµСЃР»Рё calibrated_model.pkl СЃСѓС‰РµСЃС‚РІСѓРµС‚ -- РёСЃРїРѕР»СЊР·СѓРµС‚ РµРіРѕ;
+      РёРЅР°С‡Рµ -- РѕСЂРёРіРёРЅР°Р»СЊРЅС‹Р№ CatBoost.
+
+РўРћРљР•Рќ: СѓСЃС‚Р°РЅРѕРІРёС‚Рµ РїРµСЂРµРјРµРЅРЅСѓСЋ СЃСЂРµРґС‹ BOT_TOKEN РїРµСЂРµРґ Р·Р°РїСѓСЃРєРѕРј.
 """
 
+import re
+import pathlib
 import asyncio
 import json
 import logging
 import os
 import csv
 import hashlib
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, timedelta
 
 import numpy as np
+try:
+    from deep_translator import GoogleTranslator
+    from langdetect import detect as _langdetect
+    _translator_available = True
+except ImportError:
+    _translator_available = False
+
+def _to_english(text: str) -> str:
+    """РџРµСЂРµРІРѕРґРёС‚ С‚РµРєСЃС‚ РІ Р°РЅРіР»РёР№СЃРєРёР№, РµСЃР»Рё СЏР·С‹Рє РЅРµ EN."""
+    if not _translator_available:
+        return text
+    try:
+        lang = _langdetect(text)
+        if lang != "en":
+            return GoogleTranslator(source="auto", target="en").translate(text)
+    except Exception:
+        pass
+    return text
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
 from aiogram.types import Message
 from sentence_transformers import SentenceTransformer
 from catboost import CatBoostClassifier
 
-from feature_extractor import extract_features, FEATURE_NAMES
-from lexicons import (
-    HOPELESSNESS, SUICIDAL_IDEATION, DEPRESSION_EMOTIONAL,
-    COGNITIVE_DISTORTIONS, SOCIAL_ISOLATION, PHYSICAL_SYMPTOMS,
-)
+# РЈР»СѓС‡С€РµРЅРЅС‹Р№ СЌРєСЃС‚СЂР°РєС‚РѕСЂ РїСЂРёР·РЅР°РєРѕРІ (#4): РµСЃР»Рё РµСЃС‚СЊ v2, Р±РµСЂС‘Рј РµРіРѕ
+try:
+    from feature_extractor_v2 import extract_features, FEATURE_NAMES_V1 as FEATURE_NAMES
+except ImportError:
+    from feature_extractor import extract_features, FEATURE_NAMES
+
+# РџРѕРґРґРµСЂР¶РєР° РѕС‚РєР°Р»РёР±СЂРѕРІР°РЅРЅРѕР№ РјРѕРґРµР»Рё (#5)
+try:
+    from calibration import load_calibrated_model
+except ImportError:
+    def load_calibrated_model(_=None):
+        return None
+
+try:
+    from lexicons import (
+        HOPELESSNESS, SUICIDAL_IDEATION, DEPRESSION_EMOTIONAL,
+        COGNITIVE_DISTORTIONS, SOCIAL_ISOLATION, PHYSICAL_SYMPTOMS,
+    )
+except ImportError:
+    HOPELESSNESS = SUICIDAL_IDEATION = DEPRESSION_EMOTIONAL = []
+    COGNITIVE_DISTORTIONS = SOCIAL_ISOLATION = PHYSICAL_SYMPTOMS = []
 
 # ==========================================
-# 1. НАСТРОЙКИ
+# 1. РќРђРЎРўР РћР™РљР
 # ==========================================
 
-# Замените на свой токен от @BotFather
-BOT_TOKEN = "ВАШ_ТОКЕН_ЗДЕСЬ"
+BOT_TOKEN   = os.getenv('BOT_TOKEN', '8343248444:AAHqbYzVOH7IoZvUdAr-lcfDnH_H6ouFAk8')
+LOG_FILE    = str(pathlib.Path.home() / 'bot_logs.csv')
+STATS_FILE  = 'bot_stats.json'
+MODEL_PATH  = 'cb_suicide_model.cbm'
+CAL_PATH    = 'calibrated_model.pkl'
+CONFIG_PATH = 'model_config.json'
 
-LOG_FILE = "bot_logs.csv"
-STATS_FILE = "bot_stats.json"
-MODEL_PATH = "cb_suicide_model.cbm"
-CONFIG_PATH = "model_config.json"
+# #3 Temporal tracking
+_user_history: dict = defaultdict(list)
+TEMPORAL_WINDOW_MIN = 30    # РѕРєРЅРѕ РІ РјРёРЅСѓС‚Р°С…
+TEMPORAL_RISK_COUNT = 2     # РєРѕР»-РІРѕ high-risk СЃРѕРѕР±С‰РµРЅРёР№ РґР»СЏ СЌСЃРєР°Р»Р°С†РёРё
+TEMPORAL_RISK_THR   = 0.60   # РїРѕСЂРѕРі temporal
 
 logging.basicConfig(level=logging.INFO)
 
 # ==========================================
-# 2. ЗАГРУЗКА МОДЕЛИ И КОНФИГА
+# 2. Р—РђР“Р РЈР—РљРђ РњРћР”Р•Р›Р
 # ==========================================
 
-print("=" * 60)
-print("ЗАГРУЗКА МОДЕЛИ")
-print("=" * 60)
+# РЎР±СЂР°СЃС‹РІР°РµРј СЃС‚Р°СЂС‹Р№ Р»РѕРі С‡С‚РѕР±С‹ Р·Р°РіРѕР»РѕРІРѕРє Р±С‹Р» РїРµСЂРµР·Р°РїРёСЃР°РЅ
+if os.path.exists(LOG_FILE):
+    os.remove(LOG_FILE)
+print(f'[Р›РѕРі] Р‘СѓРґРµС‚ СЃРѕС…СЂР°РЅСЏС‚СЊСЃСЏ РІ: {LOG_FILE}')
+print('=' * 60)
+print('Р—РђР“Р РЈР—РљРђ РњРћР”Р•Р›Р v2')
+print('=' * 60)
 
-print("[1/3] Загружаем NLP-энкодер (sentence-transformers)...")
+print('[1/3] Р—Р°РіСЂСѓР¶Р°РµРј NLP-СЌРЅРєРѕРґРµСЂ...')
 encoder = SentenceTransformer(
-    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-    device="cpu"
+    'sentence-transformers/all-mpnet-base-v2',
+    device='cpu',
 )
-print(f"       OK | Модель: paraphrase-multilingual-MiniLM-L12-v2")
-print(f"       OK | Размерность эмбеддингов: {encoder.get_sentence_embedding_dimension()}")
+print(f'       OK | paraphrase-multilingual-all-mpnet-base-v2')
+print(f'       OK | Р Р°Р·РјРµСЂРЅРѕСЃС‚СЊ: {encoder.get_sentence_embedding_dimension()}')
 
-print("\n[2/3] Загружаем ML-модель (CatBoost)...")
+print('\n[2/3] Р—Р°РіСЂСѓР¶Р°РµРј ML-РјРѕРґРµР»СЊ (CatBoost)...')
 cb_model = CatBoostClassifier()
 if os.path.exists(MODEL_PATH):
     cb_model.load_model(MODEL_PATH)
-    print(f"       OK | Модель загружена: {MODEL_PATH}")
+    print(f'       OK | {MODEL_PATH}')
 else:
-    print(f"       ERR | Модель {MODEL_PATH} не найдена!")
-    print(f"       Запустите: python train_demo.py")
-    raise FileNotFoundError(f"Модель {MODEL_PATH} не найдена. Сначала обучите модель.")
+    raise FileNotFoundError(f'РњРѕРґРµР»СЊ {MODEL_PATH} РЅРµ РЅР°Р№РґРµРЅР°. РЎРЅР°С‡Р°Р»Р° РѕР±СѓС‡РёС‚Рµ РјРѕРґРµР»СЊ.')
 
-print("\n[3/3] Загружаем конфигурацию...")
+print('\n[3/3] РџСЂРѕРІРµСЂСЏРµРј РѕС‚РєР°Р»РёР±СЂРѕРІР°РЅРЅСѓСЋ РјРѕРґРµР»СЊ...')
+cal_model    = load_calibrated_model(CAL_PATH)
+ACTIVE_MODEL = cal_model if cal_model is not None else cb_model
+if cal_model is not None:
+    print('       OK | РСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ РѕС‚РєР°Р»РёР±СЂРѕРІР°РЅРЅР°СЏ РјРѕРґРµР»СЊ (calibrated_model.pkl)')
+else:
+    print('       INFO | calibrated_model.pkl РЅРµ РЅР°Р№РґРµРЅ, РёСЃРїРѕР»СЊР·СѓРµРј CatBoost РЅР°РїСЂСЏРјСѓСЋ')
+
 if os.path.exists(CONFIG_PATH):
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+    with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
         config = json.load(f)
-    THRESHOLD = config.get("threshold", 0.5)
-    EMBEDDING_DIM = config.get("embedding_dim", 384)
-    META_COUNT = config.get("meta_feature_count", len(FEATURE_NAMES))
-    print(f"       OK | Порог: {THRESHOLD:.3f}")
-    print(f"       OK | Эмбеддинги: {EMBEDDING_DIM}")
-    print(f"       OK | Лингв. признаки: {META_COUNT}")
+    THRESHOLD     = config.get('threshold', 0.495)
+    EMBEDDING_DIM = config.get('embedding_dim', 384)
 else:
-    print(f"       WARN | Конфиг {CONFIG_PATH} не найден, используем defaults")
-    THRESHOLD = 0.5
-    EMBEDDING_DIM = 384
-    META_COUNT = len(FEATURE_NAMES)
+    THRESHOLD, EMBEDDING_DIM = 0.495, 384
+    config = {}
 
-print("\n" + "=" * 60)
-print("МОДЕЛЬ ГОТОВА К РАБОТЕ")
-print("=" * 60)
+print('\n' + '=' * 60)
+print(f'РњРћР”Р•Р›Р¬ Р“РћРўРћР’Рђ | РїРѕСЂРѕРі={THRESHOLD:.3f}')
+print('=' * 60)
+
 
 # ==========================================
-# 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# 3. Р’РЎРџРћРњРћР“РђРўР•Р›Р¬РќР«Р• Р¤РЈРќРљР¦РР
 # ==========================================
 
 def anonymize_id(user_id: int) -> str:
-    """Хеширует ID пользователя для анонимности."""
     return hashlib.sha256(str(user_id).encode()).hexdigest()[:12]
 
 
 def load_stats() -> dict:
-    """Загружает статистику из файла."""
     if os.path.exists(STATS_FILE):
-        with open(STATS_FILE, "r", encoding="utf-8") as f:
+        with open(STATS_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
-    return {"total_analyses": 0, "risk_detected": 0, "daily": {}}
+    return {'total_analyses': 0, 'risk_detected': 0, 'daily': {}}
 
 
 def save_stats(stats: dict):
-    """Сохраняет статистику."""
-    with open(STATS_FILE, "w", encoding="utf-8") as f:
+    with open(STATS_FILE, 'w', encoding='utf-8') as f:
         json.dump(stats, f, ensure_ascii=False, indent=2)
 
+def normalize_input(text: str) -> str:
+    """
+    РћС‡РёС‰Р°РµС‚ С‚РµРєСЃС‚ РѕС‚ Р°СЂС‚РµС„Р°РєС‚РѕРІ РєРѕРїРёСЂРѕРІР°РЅРёСЏ (HTML-С‚РµРіРё, markdown,
+    Р»РёС€РЅРёРµ РїСЂРѕР±РµР»С‹, С‚РµС…РЅРёС‡РµСЃРєРёРµ РїСЂРµС„РёРєСЃС‹ 'Р РµР·СѓР»СЊС‚Р°С‚ Р°РЅР°Р»РёР·Р°' Рё С‚.Рґ.)
+    РїРµСЂРµРґ РїРѕРґР°С‡РµР№ РІ РјРѕРґРµР»СЊ.
+    """
+    # РЈРґР°Р»СЏРµРј HTML-С‚РµРіРё
+    text = re.sub(r'<[^>]+>', ' ', text)
+    # РЈРґР°Р»СЏРµРј markdown bold/italic
+    text = re.sub(r'\*\*|__|\*|_', '', text)
+    # РЈРґР°Р»СЏРµРј СЃР»СѓР¶РµР±РЅС‹Рµ РІСЃС‚Р°РІРєРё Р±РѕС‚Р° (РµСЃР»Рё СЋР·РµСЂ СЃРєРѕРїРёСЂРѕРІР°Р» СЃС‚Р°СЂС‹Р№ РѕС‚РІРµС‚)
+    text = re.sub(r'Р РµР·СѓР»СЊС‚Р°С‚ Р°РЅР°Р»РёР·Р°.*?(?=\n|$)', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'РЈСЂРѕРІРµРЅСЊ СЂРёСЃРєР°.*?(?=\n|$)', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'РЈРІРµСЂРµРЅРЅРѕСЃС‚СЊ РјРѕРґРµР»Рё.*?(?=\n|$)', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'РўРµР»РµС„РѕРЅС‹ РґРѕРІРµСЂРёСЏ.*?(?=\n|$)', '', text, flags=re.IGNORECASE)
+    # Р—Р°РјРµРЅСЏРµРј РјРЅРѕР¶РµСЃС‚РІРµРЅРЅС‹Рµ РїРµСЂРµРЅРѕСЃС‹ Рё РїСЂРѕР±РµР»С‹ РЅР° РѕРґРёРЅ РїСЂРѕР±РµР»
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
-def log_analysis(user_id: int, text: str, prob: float, label: str, details: dict):
-    """Сохраняет результат анализа в CSV (анонимно)."""
-    file_exists = os.path.isfile(LOG_FILE)
+def log_analysis(user_id: int, text: str, prob: float, label: str, details: dict, username: str = ""):
     anon_id = anonymize_id(user_id)
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    with open(LOG_FILE, mode="a", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow([
-                "datetime", "anon_user_id", "text_length", "probability",
-                "prediction_label", "depression_index", "suicide_risk_index",
-                "emotional_balance",
-            ])
-        writer.writerow([
-            current_time, anon_id, len(text), round(prob, 4), label,
-            round(details.get("depression_index", 0), 2),
-            round(details.get("suicide_risk_index", 0), 2),
-            round(details.get("emotional_balance", 0), 2),
-        ])
-    
-    # Обновляем статистику
-    stats = load_stats()
-    stats["total_analyses"] += 1
-    if label == "Тревога":
-        stats["risk_detected"] += 1
-    today = datetime.now().strftime("%Y-%m-%d")
-    stats["daily"][today] = stats["daily"].get(today, 0) + 1
-    save_stats(stats)
+    row = [
+        datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        anon_id, username or '', len(text), text,
+        round(prob, 4), label,
+        round(details.get('depression_index', 0), 2),
+        round(details.get('suicide_risk_index', 0), 2),
+        round(details.get('emotional_balance', 0), 2),
+        round(details.get('nli_negation_score', 0), 3),
+    ]
+    header = ['datetime','anon_user_id','username','text_length','text',
+              'probability','prediction_label','depression_index',
+              'suicide_risk_index','emotional_balance','nli_negation_score']
+    write_header = not os.path.isfile(LOG_FILE)
+    try:
+        with open(LOG_FILE, mode='a', encoding='utf-8-sig', newline='') as f:
+            writer = csv.writer(f, quoting=csv.QUOTE_ALL)
+            if write_header:
+                writer.writerow(header)
+            writer.writerow(row)
+        logging.info(f'[LOG] РЎРѕС…СЂР°РЅРµРЅРѕ -> {LOG_FILE}')
+    except Exception as e:
+        logging.error(f'[LOG] РћС€РёР±РєР° Р·Р°РїРёСЃРё РІ {LOG_FILE}: {e}')
+        # Fallback: РїСЂРѕР±СѓРµРј Р·Р°РїРёСЃР°С‚СЊ СЂСЏРґРѕРј СЃРѕ СЃРєСЂРёРїС‚РѕРј
+        fallback = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bot_logs_fallback.csv')
+        try:
+            with open(fallback, mode='a', encoding='utf-8-sig', newline='') as f:
+                writer = csv.writer(f, quoting=csv.QUOTE_ALL)
+                if not os.path.isfile(fallback):
+                    writer.writerow(header)
+                writer.writerow(row)
+            logging.info(f'[LOG] Fallback -> {fallback}')
+        except Exception as e2:
+            logging.error(f'[LOG] Fallback С‚РѕР¶Рµ РЅРµ СЃСЂР°Р±РѕС‚Р°Р»: {e2}')
+    # РЎС‚Р°С‚РёСЃС‚РёРєР° РѕС‚РґРµР»СЊРЅРѕ
+    try:
+        stats = load_stats()
+        stats['total_analyses'] += 1
+        if label == 'РўСЂРµРІРѕРіР°':
+            stats['risk_detected'] += 1
+        today = datetime.now().strftime('%Y-%m-%d')
+        stats['daily'][today] = stats['daily'].get(today, 0) + 1
+        save_stats(stats)
+    except Exception as e:
+        logging.warning(f'[STATS] {e}')
+
+
+# --- #3 Temporal analysis ---
+def update_temporal(user_id: int, prob: float) -> int:
+    """
+    РћР±РЅРѕРІР»СЏРµС‚ РёСЃС‚РѕСЂРёСЋ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ Рё РІРѕР·РІСЂР°С‰Р°РµС‚ РєРѕР»-РІРѕ high-risk
+    СЃРѕРѕР±С‰РµРЅРёР№ Р·Р° РїРѕСЃР»РµРґРЅРёРµ TEMPORAL_WINDOW_MIN РјРёРЅСѓС‚.
+    """
+    now    = datetime.now()
+    cutoff = now - timedelta(minutes=TEMPORAL_WINDOW_MIN)
+    # РћС‡РёС‰Р°РµРј СѓСЃС‚Р°СЂРµРІС€Рµ
+    _user_history[user_id] = [
+        (ts, p) for ts, p in _user_history[user_id] if ts > cutoff
+    ]
+    _user_history[user_id].append((now, prob))
+    return sum(1 for _, p in _user_history[user_id] if p >= TEMPORAL_RISK_THR)
 
 
 def analyze_text(text: str) -> tuple:
-    """
-    Полный анализ текста.
-    
-    Returns:
-        (probability, features_dict, details_dict)
-    """
-    # 1. Эмбеддинги
-    vec = encoder.encode([text], convert_to_numpy=True)
-    
-    # 2. Лингвистические признаки
-    features = extract_features(text)
-    meta_values = np.array([features[name] for name in FEATURE_NAMES]).reshape(1, -1)
-    
-    # 3. Объединение
-    X = np.hstack((vec, meta_values))
-    
-    # 4. Предсказание
-    prob = float(cb_model.predict_proba(X)[0][1])
-    
-    # 5. Детали по категориям
+    """РџРѕР»РЅС‹Р№ Р°РЅР°Р»РёР· С‚РµРєСЃС‚Р°."""
+
+    text      = normalize_input(text)
+    text_en   = _to_english(text)  # RU -> EN РґР»СЏ СЌРјР±РµРґРґРёРЅРіР°
+    vec       = encoder.encode([text_en], convert_to_numpy=True)
+    features  = extract_features(text)   # #4 NLI-РѕС‚СЂРёС†Р°РЅРёРµ
+    meta_vals = np.array([features[name] for name in FEATURE_NAMES]).reshape(1, -1)
+    X         = np.hstack((vec, meta_vals))
+    prob      = float(ACTIVE_MODEL.predict_proba(X)[0][1])  # #5 РєР°Р»РёР±СЂРѕРІРєР°
+
     details = {
-        "depression_index": features["depression_index"],
-        "suicide_risk_index": features["suicide_risk_index"],
-        "emotional_balance": features["emotional_balance"],
-        "negative_index": features["negative_emotion_index"],
-        "positive_index": features["positive_emotion_index"],
-        "risk_ratio": features["risk_protective_ratio"],
-        "word_count": features["word_count"],
-        "all_depressive_freq": features["all_depressive_freq"],
-        "hopelessness_freq": features["hopelessness_freq"],
-        "suicidal_freq": features["suicidal_freq"],
-        "social_isolation_freq": features["social_isolation_freq"],
-        "cognitive_distortions_freq": features["cognitive_distortions_freq"],
-        "lexical_diversity": features["lexical_diversity"],
-        "intensification_index": features["intensification_index"],
-        "i_pronoun_freq": features["i_pronoun_freq"],
+        'depression_index':           features['depression_index'],
+        'suicide_risk_index':         features['suicide_risk_index'],
+        'emotional_balance':          features['emotional_balance'],
+        'negative_emotion_index':     features['negative_emotion_index'],
+        'positive_emotion_index':     features['positive_emotion_index'],
+        'risk_protective_ratio':      features['risk_protective_ratio'],
+        'word_count':                 features['word_count'],
+        'all_depressive_freq':        features['all_depressive_freq'],
+        'hopelessness_freq':          features['hopelessness_freq'],
+        'suicidal_freq':              features['suicidal_freq'],
+        'social_isolation_freq':      features['social_isolation_freq'],
+        'cognitive_distortions_freq': features['cognitive_distortions_freq'],
+        'lexical_diversity':          features['lexical_diversity'],
+        'intensification_index':      features['intensification_index'],
+        'i_pronoun_freq':             features['i_pronoun_freq'],
+        'nli_negation_score':         features.get('nli_negation_score',
+                                      features.get('negation_of_suicidal_intent', 0)),
     }
-    
     return prob, features, details
 
 
-def format_result(prob: float, details: dict) -> str:
-    """Форматирует результат анализа для Telegram."""
-    
+def format_result(prob: float, details: dict, temporal_risk_count: int = 0) -> str:
+    """Р¤РѕСЂРјР°С‚РёСЂСѓРµС‚ РѕС‚РІРµС‚ РґР»СЏ Telegram."""
     if prob >= THRESHOLD:
-        risk_level = "?? ВЫСОКИЙ РИСК"
-        emoji = "??"
-        color_emoji = "??"
+        risk_level = '\U0001f6a8 Р’Р«РЎРћРљРР™ Р РРЎРљ'
+        emoji      = '\U0001f534'
     elif prob >= THRESHOLD * 0.6:
-        risk_level = "?? ПОВЫШЕННЫЙ РИСК"
-        emoji = "??"
-        color_emoji = "??"
+        risk_level = '\u26a0\ufe0f РџРћР’Р«РЁР•РќРќР«Р™ Р РРЎРљ'
+        emoji      = '\U0001f7e1'
     else:
-        risk_level = "?? НОРМА"
-        emoji = "?"
-        color_emoji = "??"
-    
-    # Шкала вероятности
+        risk_level = '\u2705 РќРћР РњРђ'
+        emoji      = '\U0001f7e2'
+
+    nli_note = ''
+    if details.get('nli_negation_score', 0) > 0.5:
+        nli_note = '\n_РћР±РЅР°СЂСѓР¶РµРЅРѕ СЏРІРЅРѕРµ РѕС‚СЂРёС†Р°РЅРёРµ СЃСѓРёС†РёРґР°Р»СЊРЅРѕРіРѕ РЅР°РјРµСЂРµРЅРёСЏ._'
+
     bar_length = 20
-    filled = int(prob * bar_length)
-    bar = "-" * filled + "-" * (bar_length - filled)
-    
-    message = f"""
-{emoji} *Результат анализа*
+    filled     = int(prob * bar_length)
+    bar        = '\u2588' * filled + '\u2591' * (bar_length - filled)
 
-{color_emoji} *Уровень риска:* {risk_level}
-*Уверенность модели:* {prob:.1%}
-`{bar}`
+    message = (
+        f'{emoji} *Р РµР·СѓР»СЊС‚Р°С‚ Р°РЅР°Р»РёР·Р°*\n\n'
+        f'{emoji} *РЈСЂРѕРІРµРЅСЊ СЂРёСЃРєР°:* {risk_level}\n'
+        f'*РЈРІРµСЂРµРЅРЅРѕСЃС‚СЊ РјРѕРґРµР»Рё:* {prob:.1%}\n'
+        f'`{bar}`{nli_note}\n\n'
+        f'*\U0001f9e0 Р›РёРЅРіРІРёСЃС‚РёС‡РµСЃРєРёРµ РјР°СЂРєРµСЂС‹:*\n'
+        f'\u2022 РРЅРґРµРєСЃ РґРµРїСЂРµСЃСЃРёРё: `{details["depression_index"]:.1f}`\n'
+        f'\u2022 РЎСѓРёС†РёРґР°Р»СЊРЅС‹Р№ СЂРёСЃРє: `{details["suicide_risk_index"]:.1f}`\n'
+        f'\u2022 Р­РјРѕС†РёРѕРЅР°Р»СЊРЅС‹Р№ Р±Р°Р»Р°РЅСЃ: `{details["emotional_balance"]:+.1f}`\n\n'
+        f'*\U0001f4ca РўРµРєСЃС‚РѕРІС‹Рµ РјРµС‚СЂРёРєРё:*\n'
+        f'\u2022 Р”Р»РёРЅР°: `{int(details["word_count"])} СЃР»РѕРІ`\n'
+        f'\u2022 РњРµСЃС‚РѕРёРјРµРЅРёСЏ "СЏ/РјРµРЅСЏ": `{details["i_pronoun_freq"]:.1f}%`\n'
+        f'\u2022 Р”РµРїСЂРµСЃСЃРёРІРЅС‹Рµ РјР°СЂРєРµСЂС‹: `{details["all_depressive_freq"]:.1f}%`\n'
+    )
 
-*?? Лингвистические маркеры:*
-• Индекс депрессии: `{details["depression_index"]:.1f}`
-• Суицидальный риск: `{details["suicide_risk_index"]:.1f}`
-• Эмоциональный баланс: `{details["emotional_balance"]:+.1f}`
-  (отрицательный = преобладает негатив)
-
-*?? Текстовые метрики:*
-• Длина текста: `{int(details["word_count"])} слов`
-• Лексическое разнообразие: `{details["lexical_diversity"]:.2f}`
-• Частота местоимений "я/меня": `{details["i_pronoun_freq"]:.1f}%`
-• Частота депрессивных маркеров: `{details["all_depressive_freq"]:.1f}%`
-"""
-    
-    # Детальные маркеры для высокого риска
     if prob >= THRESHOLD * 0.5:
-        message += "\n*?? Детализация маркеров:*\n"
-        if details["hopelessness_freq"] > 0:
-            message += f"• Безысходность: `{details['hopelessness_freq']:.1f}%`\n"
-        if details["suicidal_freq"] > 0:
-            message += f"• Суицидальные маркеры: `{details['suicidal_freq']:.1f}%` ??\n"
-        if details["social_isolation_freq"] > 0:
-            message += f"• Социальная изоляция: `{details['social_isolation_freq']:.1f}%`\n"
-        if details["cognitive_distortions_freq"] > 0:
-            message += f"• Когнитивные искажения: `{details['cognitive_distortions_freq']:.1f}%`\n"
-        if details["intensification_index"] > 0.5:
-            message += f"• Эмоциональная интенсификация: `{details['intensification_index']:.1f}`\n"
-    
-    # Рекомендации
-    if prob >= THRESHOLD:
-        message += """
-?? *Рекомендация:*
-Текст содержит значительное количество маркеров депрессивного состояния. Если это ваш текст, рекомендуется обратиться к специалисту.
+        extras = ''
+        if details['hopelessness_freq'] > 0:
+            extras += f'\u2022 Р‘РµР·С‹СЃС…РѕРґРЅРѕСЃС‚СЊ: `{details["hopelessness_freq"]:.1f}%`\n'
+        if details['suicidal_freq'] > 0:
+            extras += f'\u2022 РЎСѓРёС†РёРґР°Р»СЊРЅС‹Рµ РјР°СЂРєРµСЂС‹: `{details["suicidal_freq"]:.1f}%` \u26a0\ufe0f\n'
+        if details['social_isolation_freq'] > 0:
+            extras += f'\u2022 РЎРѕС†РёР°Р»СЊРЅР°СЏ РёР·РѕР»СЏС†РёСЏ: `{details["social_isolation_freq"]:.1f}%`\n'
+        if details['cognitive_distortions_freq'] > 0:
+            extras += f'\u2022 РљРѕРіРЅРёС‚РёРІРЅС‹Рµ РёСЃРєР°Р¶РµРЅРёСЏ: `{details["cognitive_distortions_freq"]:.1f}%`\n'
+        if details['intensification_index'] > 0.5:
+            extras += f'\u2022 Р­РјРѕС†РёРѕРЅР°Р»СЊРЅР°СЏ РёРЅС‚РµРЅСЃРёС„РёРєР°С†РёСЏ: `{details["intensification_index"]:.1f}`\n'
+        if extras:
+            message += f'\n*\U0001f50d Р”РµС‚Р°Р»РёР·Р°С†РёСЏ:*\n{extras}'
 
-*Телефоны доверия:*
-?? 8-800-2000-122 (бесплатно, круглосуточно)
-?? 8-800-333-44-34 (Телефон доверия)
-"""
-    
+    if prob >= THRESHOLD:
+        message += (
+            '\n\U0001f4cc *Р РµРєРѕРјРµРЅРґР°С†РёСЏ:*\n'
+            'РўРµРєСЃС‚ СЃРѕРґРµСЂР¶РёС‚ Р·РЅР°С‡РёС‚РµР»СЊРЅРѕРµ РєРѕР»РёС‡РµСЃС‚РІРѕ РјР°СЂРєРµСЂРѕРІ РґРµРїСЂРµСЃСЃРёРё. '
+            'Р•СЃР»Рё СЌС‚Рѕ РІР°С€ С‚РµРєСЃС‚, СЂРµРєРѕРјРµРЅРґСѓРµС‚СЃСЏ РѕР±СЂР°С‚РёС‚СЊСЃСЏ Рє СЃРїРµС†РёР°Р»РёСЃС‚Сѓ.\n\n'
+            '*РўРµР»РµС„РѕРЅС‹ РґРѕРІРµСЂРёСЏ:*\n'
+            '\U0001f4de 8-800-2000-122 _(Р±РµСЃРїР»Р°С‚РЅРѕ, РєСЂСѓРіР»РѕСЃСѓС‚РѕС‡РЅРѕ)_\n'
+            '\U0001f4de 8-800-333-44-34'
+        )
+
+    # --- #3 Temporal СЌСЃРєР°Р»Р°С†РёСЏ ---
+    if temporal_risk_count >= TEMPORAL_RISK_COUNT and prob >= TEMPORAL_RISK_THR:
+        message += (
+            f'\n\n\U0001f198 *РџРѕРІС‚РѕСЂРЅС‹Р№ РІС‹СЃРѕРєРёР№ СЂРёСЃРє*\n'
+            f'Р—Р° РїРѕСЃР»РµРґРЅРёРµ {TEMPORAL_WINDOW_MIN} РјРёРЅСѓС‚ СЌС‚Рѕ СѓР¶Рµ '
+            f'{temporal_risk_count}-Рµ СЃРѕРѕР±С‰РµРЅРёРµ СЃ РІС‹СЃРѕРєРёРј СѓСЂРѕРІРЅРµРј С‚СЂРµРІРѕРіРё. '
+            'РџРѕР¶Р°Р»СѓР№СЃС‚Р°, РїРѕР·РІРѕРЅРёС‚Рµ РЅР° С‚РµР»РµС„РѕРЅ РґРѕРІРµСЂРёСЏ РїСЂСЏРјРѕ СЃРµР№С‡Р°СЃ:\n'
+            '*8-800-2000-122* _(Р±РµСЃРїР»Р°С‚РЅРѕ, РєСЂСѓРіР»РѕСЃСѓС‚РѕС‡РЅРѕ)_'
+        )
+
     return message
 
 
 # ==========================================
-# 4. TELEGRAM БОТ
+# 4. TELEGRAM Р‘РћРў
 # ==========================================
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+dp  = Dispatcher()
+bot = None
 
 
-@dp.message(Command("start"))
+@dp.message(Command('start'))
 async def cmd_start(message: Message):
-    welcome_text = """
-?? *Привет! Я — NLP-ассистент для анализа эмоционального состояния.*
-
-Я использую гибридную модель машинного обучения:
-?? *Трансформер* (384-мерные эмбеддинги) -- понимаю смысл текста
-?? *CatBoost* -- классифицирую риск
-?? *30+ лингвистических признаков* -- анализирую паттерны речи
-
-*Как пользоваться:*
-Просто напишите мне о своих мыслях, переживаниях или чувствах.
-Минимум ~10 слов для точного анализа контекста.
-
-*Команды:*
-/help -- подробная справка
-/stats -- анонимная статистика
-/about -- о модели
-
-_Все данные анонимны. ID хешируется._
-"""
-    await message.answer(welcome_text, parse_mode="Markdown")
+    text = (
+        '\U0001f916 *РџСЂРёРІРµС‚! РЇ -- NLP-Р°СЃСЃРёСЃС‚РµРЅС‚ РґР»СЏ Р°РЅР°Р»РёР·Р° СЌРјРѕС†РёРѕРЅР°Р»СЊРЅРѕРіРѕ СЃРѕСЃС‚РѕСЏРЅРёСЏ.*\n\n'
+        'РЇ РёСЃРїРѕР»СЊР·СѓСЋ РіРёР±СЂРёРґРЅСѓСЋ РјРѕРґРµР»СЊ:\n'
+        '\U0001f9e0 *РўСЂР°РЅСЃС„РѕСЂРјРµСЂ* (768-РјРµСЂРЅС‹Рµ СЌРјР±РµРґРґРёРЅРіРё)\n'
+        '\U0001f4ca *CatBoost* -- РєР»Р°СЃСЃРёС„РёРєР°С‚РѕСЂ СЂРёСЃРєР°\n'
+        '\U0001f4dd *31 Р»РёРЅРіРІРёСЃС‚РёС‡РµСЃРєРёР№ РїСЂРёР·РЅР°Рє* + NLI-РѕС‚СЂРёС†Р°РЅРёРµ\n'
+        '\U0001f4c8 *Р’СЂРµРјРµРЅРЅРѕР№ Р°РЅР°Р»РёР·* -- РґРёРЅР°РјРёРєР° Р·Р° 30 РјРёРЅСѓС‚\n\n'
+        '*РљР°Рє РїРѕР»СЊР·РѕРІР°С‚СЊСЃСЏ:*\n'
+        'РќР°РїРёС€РёС‚Рµ Рѕ СЃРІРѕРёС… РјС‹СЃР»СЏС… РёР»Рё РїРµСЂРµР¶РёРІР°РЅРёСЏС… (РјРёРЅРёРјСѓРј 5 СЃР»РѕРІ).\n\n'
+        '*РљРѕРјР°РЅРґС‹:*\n'
+        '/help -- РїРѕРґСЂРѕР±РЅР°СЏ СЃРїСЂР°РІРєР°\n'
+        '/stats -- Р°РЅРѕРЅРёРјРЅР°СЏ СЃС‚Р°С‚РёСЃС‚РёРєР°\n'
+        '/about -- Рѕ РјРѕРґРµР»Рё\n'
+        '/clear -- СЃР±СЂРѕСЃРёС‚СЊ РІСЂРµРјРµРЅРЅСѓСЋ РёСЃС‚РѕСЂРёСЋ\n\n'
+        '_Р’СЃРµ РґР°РЅРЅС‹Рµ Р°РЅРѕРЅРёРјРЅС‹. ID С…РµС€РёСЂСѓРµС‚СЃСЏ SHA-256._'
+    )
+    await message.answer(text, parse_mode='Markdown')
 
 
-@dp.message(Command("help"))
+@dp.message(Command('help'))
 async def cmd_help(message: Message):
-    help_text = f"""
-*?? Справка*
-
-*Как работает анализ:*
-1. Ваш текст преобразуется в 384-мерный эмбеддинг через нейросеть
-2. Извлекаются 30+ лингвистических признаков:
-   • Частота депрессивных/суицидальных маркеров
-   • Эмоциональные индексы
-   • Когнитивные искажения
-   • Социальная изоляция
-   • Безысходность, интенсификация
-3. CatBoost-классификатор оценивает риск
-
-*Интерпретация результатов:*
-?? *Норма* (< {THRESHOLD * 0.6:.0%}) -- текст без тревожных маркеров
-?? *Повышенный* ({THRESHOLD * 0.6:.0%}--{THRESHOLD:.0%}) -- есть отдельные маркеры
-?? *Высокий* (? {THRESHOLD:.0%}) -- значительное количество маркеров
-
-_Важно: бот не ставит диагноз. При высоком риске рекомендуется обратиться к психологу или психиатру._
-"""
-    await message.answer(help_text, parse_mode="Markdown")
+    t_low  = f'{THRESHOLD * 0.6:.0%}'
+    t_high = f'{THRESHOLD:.0%}'
+    text = (
+        '*РЎРїСЂР°РІРєР°*\n\n'
+        '*РљР°Рє СЂР°Р±РѕС‚Р°РµС‚ Р°РЅР°Р»РёР·:*\n'
+        '1. РўРµРєСЃС‚ РєРѕРґРёСЂСѓРµС‚СЃСЏ РІ 768-РјРµСЂРЅС‹Р№ СЌРјР±РµРґРґРёРЅРі\n'
+        '2. РР·РІР»РµРєР°СЋС‚СЃСЏ 31 Р»РёРЅРіРІРёСЃС‚РёС‡РµСЃРєРёР№ РїСЂРёР·РЅР°Рє + NLI-РѕС‚СЂРёС†Р°РЅРёРµ\n'
+        '3. CatBoost РѕС†РµРЅРёРІР°РµС‚ СЂРёСЃРє\n'
+        '4. Р’СЂРµРјРµРЅРЅРѕР№ С‚СЂРµРєРµСЂ С„РёРєСЃРёСЂСѓРµС‚ РґРёРЅР°РјРёРєСѓ Р·Р° 30 РјРёРЅСѓС‚\n\n'
+        f'*РРЅС‚РµСЂРїСЂРµС‚Р°С†РёСЏ:*\n'
+        f'\U0001f7e2 РќРѕСЂРјР° (< {t_low}) -- РЅРµС‚ С‚СЂРµРІРѕР¶РЅС‹С… РјР°СЂРєРµСЂРѕРІ\n'
+        f'\U0001f7e1 РџРѕРІС‹С€РµРЅРЅС‹Р№ ({t_low}--{t_high}) -- РµСЃС‚СЊ РѕС‚РґРµР»СЊРЅС‹Рµ РјР°СЂРєРµСЂС‹\n'
+        f'\U0001f534 Р’С‹СЃРѕРєРёР№ (>= {t_high}) -- Р·РЅР°С‡РёС‚РµР»СЊРЅРѕРµ С‡РёСЃР»Рѕ РјР°СЂРєРµСЂРѕРІ\n\n'
+        '_Р‘РѕС‚ РЅРµ СЃС‚Р°РІРёС‚ РґРёР°РіРЅРѕР·. РџСЂРё РІС‹СЃРѕРєРѕРј СЂРёСЃРєРµ РѕР±СЂР°С‚РёС‚РµСЃСЊ Рє СЃРїРµС†РёР°Р»РёСЃС‚Сѓ._'
+    )
+    await message.answer(text, parse_mode='Markdown')
 
 
-@dp.message(Command("about"))
+@dp.message(Command('about'))
 async def cmd_about(message: Message):
-    about_text = f"""
-*?? О модели*
-
-Это гибридная модель для курсовой работы:
-"Разработка гибридной модели машинного обучения для выявления признаков депрессивных и суицидальных состояний на основе анализа текстового цифрового следа"
-
-*Архитектура:*
-• Эмбеддинги: `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
-• Классификатор: `CatBoostClassifier`
-• Лингв. признаки: `30+` (лексиконы, синтаксис, стиль)
-• Порог: `{THRESHOLD:.3f}`
-
-*Маркеры:*
-• Безысходность ({len(HOPELESSNESS)} слов)
-• Суицидальная идеация ({len(SUICIDAL_IDEATION)} слов)
-• Эмоциональная депрессия ({len(DEPRESSION_EMOTIONAL)} слов)
-• Когнитивные искажения ({len(COGNITIVE_DISTORTIONS)} слов)
-• Социальная изоляция ({len(SOCIAL_ISOLATION)} слов)
-• Физические симптомы ({len(PHYSICAL_SYMPTOMS)} слов)
-
-_Бот создан в научных целях. Не заменяет профессиональную помощь._
-"""
-    await message.answer(about_text, parse_mode="Markdown")
+    cal_status = 'РґР° (isotonic)' if os.path.exists(CAL_PATH) else 'РЅРµС‚'
+    text = (
+        '*Рћ РјРѕРґРµР»Рё v2*\n\n'
+        'Р“РёР±СЂРёРґРЅР°СЏ РјРѕРґРµР»СЊ (РЎРџР±Р“РЈ, 2026)\n\n'
+        '*РђСЂС…РёС‚РµРєС‚СѓСЂР°:*\n'
+        '- Р­РјР±РµРґРґРёРЅРіРё: `paraphrase-multilingual-all-mpnet-base-v2` (768-РјРµСЂРЅС‹Рµ)\n'
+        '- РљР»Р°СЃСЃРёС„РёРєР°С‚РѕСЂ: `CatBoostClassifier`\n'
+        f'- РџРѕСЂРѕРі: `{THRESHOLD:.3f}`\n'
+        f'- РљР°Р»РёР±СЂРѕРІРєР°: `{cal_status}`\n\n'
+        '*РЈР»СѓС‡С€РµРЅРёСЏ v2:*\n'
+        '- NLI scope-aware РѕС‚СЂРёС†Р°РЅРёРµ\n'
+        '- Р’СЂРµРјРµРЅРЅРѕР№ Р°РЅР°Р»РёР· (30 РјРёРЅ)\n'
+        '- РљР°Р»РёР±СЂРѕРІРєР° РІРµСЂРѕСЏС‚РЅРѕСЃС‚РµР№\n\n'
+        '*РњРµС‚СЂРёРєРё (test set):*\n'
+        '- ROC-AUC: `0.9881` | F1: `0.9502` | Recall: `0.9586`\n'
+        '- 5-fold CV: `0.9866 +/- 0.0002`\n\n'
+        f'\u2022 Р‘РµР·С‹СЃС…РѕРґРЅРѕСЃС‚СЊ: {len(HOPELESSNESS)} СЃР»РѕРІ | РЎСѓРёС†РёРґР°Р»СЊРЅР°СЏ РёРґРµР°С†РёСЏ: {len(SUICIDAL_IDEATION)} СЃР»РѕРІ\n\n'
+        '_РќРµ Р·Р°РјРµРЅСЏРµС‚ РїСЂРѕС„РµСЃСЃРёРѕРЅР°Р»СЊРЅСѓСЋ РїРѕРјРѕС‰СЊ._'
+    )
+    await message.answer(text, parse_mode='Markdown')
 
 
-@dp.message(Command("stats"))
+@dp.message(Command('stats'))
 async def cmd_stats(message: Message):
     stats = load_stats()
-    total = stats["total_analyses"]
-    risk = stats["risk_detected"]
-    normal = total - risk
-    
-    today = datetime.now().strftime("%Y-%m-%d")
-    today_count = stats["daily"].get(today, 0)
-    
-    stats_text = f"""
-*?? Анонимная статистика*
+    total = stats['total_analyses']
+    risk  = stats['risk_detected']
+    today = datetime.now().strftime('%Y-%m-%d')
+    text = (
+        '*РђРЅРѕРЅРёРјРЅР°СЏ СЃС‚Р°С‚РёСЃС‚РёРєР°*\n\n'
+        f'Р’СЃРµРіРѕ Р°РЅР°Р»РёР·РѕРІ: `{total}`\n'
+        f'\U0001f7e2 РќРѕСЂРјР°: `{total - risk}`\n'
+        f'\U0001f534 Р РёСЃРє РІС‹СЏРІР»РµРЅ: `{risk}`\n\n'
+        f'*РЎРµРіРѕРґРЅСЏ:* `{stats["daily"].get(today, 0)}` Р°РЅР°Р»РёР·РѕРІ\n\n'
+        '_Р”Р°РЅРЅС‹Рµ Р°РЅРѕРЅРёРјРЅС‹. User ID С…РµС€РёСЂСѓРµС‚СЃСЏ SHA-256._'
+    )
+    await message.answer(text, parse_mode='Markdown')
 
-Всего анализов: `{total}`
-?? Норма: `{normal}`
-?? Риск выявлен: `{risk}`
 
-*Сегодня:* `{today_count}` анализов
-
-_Данные анонимны. User ID хешируется SHA-256._
-"""
-    await message.answer(stats_text, parse_mode="Markdown")
+@dp.message(Command('clear'))
+async def cmd_clear(message: Message):
+    """#3: РЎР±СЂР°СЃС‹РІР°РµС‚ РІСЂРµРјРµРЅРЅСѓСЋ РёСЃС‚РѕСЂРёСЋ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ."""
+    _user_history[message.from_user.id] = []
+    await message.answer(
+        '\u2705 Р’СЂРµРјРµРЅРЅР°СЏ РёСЃС‚РѕСЂРёСЏ СЃР±СЂРѕС€РµРЅР°. РЎС‡С‘С‚С‡РёРє С‚СЂРµРІРѕР¶РЅС‹С… СЃРѕРѕР±С‰РµРЅРёР№ РѕР±РЅСѓР»С‘РЅ.'
+    )
 
 
 @dp.message()
 async def analyze_message(message: Message):
-    text = message.text or message.caption or ""
-    
-    # Игнорируем команды
-    if text.startswith("/"):
+    text = message.text or message.caption or ''
+    if text.startswith('/'):
         return
-    
-    # Проверка длины
-    words = text.split()
-    if len(words) < 5:
+    if len(text.split()) < 5:
         await message.answer(
-            "?? Текст слишком короткий для точного анализа контекста. "
-            "Напишите хотя бы 5-10 слов о своих мыслях или переживаниях."
+            '\u270d\ufe0f РўРµРєСЃС‚ СЃР»РёС€РєРѕРј РєРѕСЂРѕС‚РєРёР№. РќР°РїРёС€РёС‚Рµ С…РѕС‚СЏ Р±С‹ 5-10 СЃР»РѕРІ.'
         )
         return
-    
-    # Индикатор "печатает"
-    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
-    
+
+    await bot.send_chat_action(chat_id=message.chat.id, action='typing')
     try:
-        # Анализ
-        prob, features, details = analyze_text(text)
-        
-        # Формируем ответ
-        response = format_result(prob, details)
-        
-        # Логируем (анонимно)
-        label = "Тревога" if prob >= THRESHOLD else "Норма"
-        log_analysis(message.from_user.id, text, prob, label, details)
-        
-        await message.answer(response, parse_mode="Markdown")
-        
+        prob, features, details = await asyncio.to_thread(analyze_text, text)
+        risk_count = update_temporal(message.from_user.id, prob)  # #3
+        response   = format_result(prob, details, temporal_risk_count=risk_count)
+        label      = 'РўСЂРµРІРѕРіР°' if prob >= THRESHOLD else 'РќРѕСЂРјР°'
+        log_analysis(message.from_user.id, text, prob, label, details, username=message.from_user.username or "")
+        await message.answer(response, parse_mode='Markdown')
     except Exception as e:
-        logging.error(f"Ошибка анализа: {e}")
-        await message.answer(
-            "? Произошла ошибка при анализе. Попробуйте ещё раз или обратитесь к администратору."
-        )
+        logging.error(f'РћС€РёР±РєР° Р°РЅР°Р»РёР·Р°: {e}')
+        await message.answer('\u274c РџСЂРѕРёР·РѕС€Р»Р° РѕС€РёР±РєР°. РџРѕРїСЂРѕР±СѓР№С‚Рµ РµС‰С‘ СЂР°Р·.')
 
 
 # ==========================================
-# 5. ЗАПУСК
+# 5. Р—РђРџРЈРЎРљ
 # ==========================================
 
 async def main():
-    print("\n?? Бот запущен и готов к работе!")
-    print(f"   Порог: {THRESHOLD:.3f}")
+    global bot
+    bot = Bot(token=BOT_TOKEN)
+    print('\n\U0001f916 Р‘РѕС‚ v2 Р·Р°РїСѓС‰РµРЅ!')
+    print(f'   РџРѕСЂРѕРі: {THRESHOLD:.3f} | Temporal: {TEMPORAL_WINDOW_MIN} РјРёРЅ | '
+          f'РљР°Р»РёР±СЂРѕРІРєР°: {"da" if cal_model else "net"}')
     await dp.start_polling(bot)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     asyncio.run(main())

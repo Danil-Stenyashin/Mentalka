@@ -1,474 +1,295 @@
 """
-Продвинутый экстрактор лингвистических признаков для анализа
-депрессивных и суицидальных текстов.
+feature_extractor_v2.py
 
-Включает:
-- Лексиконный анализ (по словарям маркеров)
-- Синтаксические признаки (длина предложений, знаки препинания)
-- Стилистические признаки (языковые паттерны)
-- Эмоциональные индексы
+РЈР»СѓС‡С€РµРЅРёСЏ:
+- РЈР»СѓС‡С€РµРЅРёРµ #4: NLI-РєРѕРјРїРѕРЅРµРЅС‚ РґР»СЏ РѕР±СЂР°Р±РѕС‚РєРё РѕС‚СЂРёС†Р°С‚РµР»СЊРЅС‹С… РєРѕРЅСЃС‚СЂСѓРєС†РёР№
+  Р’РјРµСЃС‚Рѕ РїСЂРѕСЃС‚РѕРіРѕ pattern matching РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ scope-aware negation:
+  РѕС‚СЃР»РµР¶РёРІР°РµС‚СЃСЏ В«РѕР±Р»Р°СЃС‚СЊ РґРµР№СЃС‚РІРёСЏВ» РѕС‚СЂРёС†Р°РЅРёСЏ (РґРѕ 5 С‚РѕРєРµРЅРѕРІ РїРѕСЃР»Рµ NOT/РќР•)
+  Рё РїРѕРґР°РІР»СЏСЋС‚СЃСЏ СЃСѓРёС†РёРґР°Р»СЊРЅС‹Рµ/РґРµРїСЂРµСЃСЃРёРІРЅС‹Рµ РјР°СЂРєРµСЂС‹ РІРЅСѓС‚СЂРё СЌС‚РѕР№ РѕР±Р»Р°СЃС‚Рё.
 """
 
 import re
-import numpy as np
-from collections import Counter
-from typing import Dict, List, Tuple
-import nltk
+from typing import Dict
 
-from lexicons import (
-    HOPELESSNESS, SUICIDAL_IDEATION, DEPRESSION_EMOTIONAL,
-    COGNITIVE_DISTORTIONS, SOCIAL_ISOLATION, PHYSICAL_SYMPTOMS,
-    POSITIVE_MARKERS, INTENSIFIERS, ALL_DEPRESSIVE,
-)
+try:
+    from lexicons import (
+        HOPELESSNESS, SUICIDAL_IDEATION, DEPRESSION_EMOTIONAL,
+        COGNITIVE_DISTORTIONS, SOCIAL_ISOLATION, PHYSICAL_SYMPTOMS,
+        POSITIVE_MARKERS, INTENSIFIERS,
+    )
+except ImportError:
+    HOPELESSNESS = SUICIDAL_IDEATION = DEPRESSION_EMOTIONAL = []
+    COGNITIVE_DISTORTIONS = SOCIAL_ISOLATION = PHYSICAL_SYMPTOMS = []
+    POSITIVE_MARKERS = INTENSIFIERS = []
+
+# ---------------------------------------------------------------------------
+# NLI-РєРѕРјРїРѕРЅРµРЅС‚: РѕС‚СЂРёС†Р°РЅРёРµ (СѓР»СѓС‡С€РµРЅРёРµ #4)
+# ---------------------------------------------------------------------------
+
+# РЎС‚РѕРї-СЃР»РѕРІР° РґР»СЏ РіСЂР°РЅРёС†С‹ РѕР±Р»Р°СЃС‚Рё РґРµР№СЃС‚РІРёСЏ РѕС‚СЂРёС†Р°РЅРёСЏ
+_SCOPE_STOPWORDS = {
+    # RU
+    'РЅРѕ', 'Р·Р°С‚Рѕ', 'С…РѕС‚СЏ', 'РїРѕС‚РѕРјСѓ', 'С‡С‚РѕР±С‹', 'РµСЃР»Рё', 'РєРѕРіРґР°', 'РїРѕРєР°',
+    'РїРѕСЃР»Рµ', 'РїСЂРµР¶РґРµ', 'С‚Р°Рє', 'РїРѕС‚РѕРјСѓ С‡С‚Рѕ', 'РЅРµСЃРјРѕС‚СЂСЏ',
+    # EN
+    'but', 'although', 'though', 'because', 'if', 'when', 'while',
+    'after', 'before', 'so', 'yet', 'however',
+}
+
+# РЎСѓРёС†РёРґР°Р»СЊРЅС‹Рµ РіР»Р°РіРѕР»С‹/СЃСѓС‰РµСЃС‚РІРёС‚РµР»СЊРЅС‹Рµ (СЏРґСЂРѕ)
+_SUICIDAL_CORE_RU = [
+    'СѓР±РёС‚СЊ', 'СѓР±РёС‚СЊСЃСЏ', 'СѓР±РёРІР°С‚СЊ', 'СѓРјРµСЂРµС‚СЊ', 'СѓРјРёСЂР°С‚СЊ', 'СЃРјРµСЂС‚',
+    'СЃСѓРёС†РёРґ', 'РІСЃРєСЂС‹С‚СЊ', 'РїРѕРІРµСЃРёС‚СЊСЃСЏ', 'Р·Р°СЃС‚СЂРµР»РёС‚СЊСЃСЏ', 'РїСЂС‹РіРЅСѓС‚СЊ',
+    'СѓР±СЊСЋ', 'СѓРјСЂСѓ', 'РїРѕРєРѕРЅС‡РёС‚СЊ', 'РїСЂРµРєСЂР°С‚РёС‚СЊ Р¶РёР·РЅСЊ',
+]
+_SUICIDAL_CORE_EN = [
+    'kill', 'die', 'suicide', 'hang', 'shoot', 'jump off', 'end it',
+    'end my life', 'take my life',
+]
+
+# РџР°С‚С‚РµСЂРЅС‹ СЏРІРЅРѕРіРѕ РѕС‚СЂРёС†Р°РЅРёСЏ СЃСѓРёС†РёРґР°Р»СЊРЅС‹С… РЅР°РјРµСЂРµРЅРёР№
+_EXPLICIT_NEGATION_PATTERNS_RU = [
+    r'РЅРµ\s+С…РѕС‡Сѓ\s+(?:СЃРµР±СЏ\s+)?(?:СѓР±РёРІР°|СѓРјРёСЂР°|СѓР±РёС‚СЊ|СѓРјРµСЂРµ)',
+    r'РЅРµ\s+РґСѓРјР°СЋ\s+Рѕ\s+(?:СЃСѓРёС†РёРґ|СЃРјРµСЂС‚|СѓР±РёР№СЃС‚РІ)',
+    r'РЅРµ\s+(?:РїР»Р°РЅРёСЂСѓСЋ|СЃРѕР±РёСЂР°СЋСЃСЊ|Р±СѓРґСѓ|С…РѕС‡Сѓ)\s+(?:СѓРјРёСЂР°|СѓР±РёРІР°|РїСЂС‹РіР°|РІРµС€Р°С‚СЊ)',
+    r'(?:РјС‹СЃР»Рё|РґСѓРјС‹)\s+Рѕ\s+СЃРјРµСЂС‚\S*\s+РјРµРЅСЏ\s+РЅРµ',
+    r'РЅРµ\s+СЃСѓРёС†РёРґР°Р»СЊРЅ',
+    r'РЅРµ\s+СЃРѕР±РёСЂР°СЋСЃСЊ\s+СѓРјРёСЂР°',
+    r'Р¶РёС‚СЊ\s+С…РѕС‡Сѓ',
+    r'С…РѕС‡Сѓ\s+Р¶РёС‚СЊ',
+]
+_EXPLICIT_NEGATION_PATTERNS_EN = [
+    r"i(?:'m|\s+am)\s+not\s+suicidal",
+    r"don'?t\s+want\s+to\s+(?:die|kill|hurt)",
+    r"not\s+going\s+to\s+(?:die|kill|hurt|end)",
+    r"i\s+will\s+not\s+(?:kill|hurt|harm)\s+(?:my)?self",
+    r"no\s+thoughts\s+of\s+(?:suicide|killing|dying)",
+    r"not\s+thinking\s+about\s+(?:suicide|death|killing)",
+    r"i\s+want\s+to\s+live",
+    r"i\s+choose\s+(?:to\s+)?live",
+]
+
+_ALL_NEG_PATTERNS = [re.compile(p, re.IGNORECASE)
+                     for p in _EXPLICIT_NEGATION_PATTERNS_RU + _EXPLICIT_NEGATION_PATTERNS_EN]
 
 
-def lemmatize_text(text: str) -> List[str]:
+def _compute_negation_scope_weight(text: str) -> float:
     """
-    Простая лемматизация для русского языка.
-    В реальном проекте используй pymorphy2 или natasha.
+    Scope-aware negation weight [0..1].
+
+    РђР»РіРѕСЂРёС‚Рј:
+    1. РўРѕРєРµРЅРёР·РёСЂСѓРµРј С‚РµРєСЃС‚.
+    2. Р”Р»СЏ РєР°Р¶РґРѕРіРѕ С‚РѕРєРµРЅР°-РѕС‚СЂРёС†Р°РЅРёСЏ (РЅРµ/РЅРµС‚/РЅРёРєРѕРіРґР°/no/not/never)
+       РѕС‚РєСЂС‹РІР°РµРј "РѕРєРЅРѕ" scope РёР· SCOPE_WINDOW С‚РѕРєРµРЅРѕРІ.
+    3. Р•СЃР»Рё РІРЅСѓС‚СЂРё РѕРєРЅР° РµСЃС‚СЊ СЃСѓРёС†РёРґР°Р»СЊРЅС‹Р№/РґРµРїСЂРµСЃСЃРёРІРЅС‹Р№ РјР°СЂРєРµСЂ,
+       СЃС‡РёС‚Р°РµРј СЌС‚Рѕ РѕС‚СЂРёС†Р°РЅРёРµРј СЃСѓРёС†РёРґР°Р»СЊРЅРѕРіРѕ РЅР°РјРµСЂРµРЅРёСЏ.
+    4. РќРѕСЂРјРёСЂСѓРµРј РЅР° РєРѕР»-РІРѕ СЃСѓРёС†РёРґР°Р»СЊРЅС‹С… РјР°СЂРєРµСЂРѕРІ (0..1).
     """
-    # Очистка и нормализация
-    text = text.lower()
-    text = re.sub(r"[^а-яёa-z0-9\s]", " ", text)
-    words = text.split()
-    
-    # Простые суффиксные правила русского языка
-    lemmas = []
-    for word in words:
-        if len(word) < 2:
-            continue
-        # Простая стемминг-подобная нормализация
-        if word.endswith("ться"):
-            word = word[:-4]
-        elif word.endswith("тся"):
-            word = word[:-3]
-        elif word.endswith("ость"):
-            word = word[:-4]
-        elif word.endswith("ости"):
-            word = word[:-4]
-        elif word.endswith("ован"):
-            word = word[:-2]
-        elif word.endswith("ована"):
-            word = word[:-3]
-        elif word.endswith("овано"):
-            word = word[:-3]
-        elif word.endswith("ировать"):
-            word = word[:-5]
-        elif word.endswith("ировать"):
-            word = word[:-5]
-        elif word.endswith("аю"):
-            word = word[:-2]
-        elif word.endswith("яю"):
-            word = word[:-2]
-        elif word.endswith("аешь"):
-            word = word[:-4]
-        elif word.endswith("яешь"):
-            word = word[:-4]
-        elif word.endswith("ает"):
-            word = word[:-3]
-        elif word.endswith("яет"):
-            word = word[:-3]
-        elif word.endswith("аем"):
-            word = word[:-3]
-        elif word.endswith("яем"):
-            word = word[:-3]
-        elif word.endswith("ают"):
-            word = word[:-3]
-        elif word.endswith("яют"):
-            word = word[:-3]
-        elif word.endswith("ала"):
-            word = word[:-3]
-        elif word.endswith("яла"):
-            word = word[:-3]
-        elif word.endswith("ало"):
-            word = word[:-3]
-        elif word.endswith("яло"):
-            word = word[:-3]
-        elif word.endswith("али"):
-            word = word[:-3]
-        elif word.endswith("яли"):
-            word = word[:-3]
-        elif word.endswith("ал"):
-            word = word[:-2]
-        elif word.endswith("ял"):
-            word = word[:-2]
-        elif word.endswith("ан"):
-            word = word[:-2]
-        elif word.endswith("ян"):
-            word = word[:-2]
-        elif word.endswith("ена"):
-            word = word[:-3]
-        elif word.endswith("ено"):
-            word = word[:-3]
-        elif word.endswith("ены"):
-            word = word[:-3]
-        elif word.endswith("ен"):
-            word = word[:-2]
-        elif word.endswith("ен"):
-            word = word[:-2]
-        elif word.endswith("ован"):
-            word = word[:-2]
-        elif word.endswith("ована"):
-            word = word[:-3]
-        elif word.endswith("овано"):
-            word = word[:-3]
-        elif word.endswith("ованы"):
-            word = word[:-3]
-        elif word.endswith("ти"):
-            word = word[:-2]
-        elif word.endswith("ть"):
-            word = word[:-2]
-        elif word.endswith("ил"):
-            word = word[:-2]
-        elif word.endswith("ила"):
-            word = word[:-3]
-        elif word.endswith("ило"):
-            word = word[:-3]
-        elif word.endswith("или"):
-            word = word[:-3]
-        elif word.endswith("ить"):
-            word = word[:-3]
-        elif word.endswith("ить"):
-            word = word[:-3]
-        elif word.endswith("ю"):
-            word = word[:-1]
-        elif word.endswith("ешь"):
-            word = word[:-3]
-        elif word.endswith("ет"):
-            word = word[:-2]
-        elif word.endswith("ем"):
-            word = word[:-2]
-        elif word.endswith("ете"):
-            word = word[:-3]
-        elif word.endswith("ут"):
-            word = word[:-2]
-        elif word.endswith("ют"):
-            word = word[:-2]
-        elif word.endswith("л"):
-            word = word[:-1]
-        elif word.endswith("ла"):
-            word = word[:-2]
-        elif word.endswith("ло"):
-            word = word[:-2]
-        elif word.endswith("ли"):
-            word = word[:-2]
-        elif word.endswith("ный"):
-            word = word[:-3]
-        elif word.endswith("ная"):
-            word = word[:-3]
-        elif word.endswith("ное"):
-            word = word[:-3]
-        elif word.endswith("ные"):
-            word = word[:-3]
-        elif word.endswith("ный"):
-            word = word[:-3]
-        elif word.endswith("ная"):
-            word = word[:-3]
-        elif word.endswith("ное"):
-            word = word[:-3]
-        elif word.endswith("ные"):
-            word = word[:-3]
-        elif word.endswith("ного"):
-            word = word[:-4]
-        elif word.endswith("ному"):
-            word = word[:-4]
-        elif word.endswith("ным"):
-            word = word[:-3]
-        elif word.endswith("ной"):
-            word = word[:-3]
-        elif word.endswith("ном"):
-            word = word[:-3]
-        elif word.endswith("ных"):
-            word = word[:-3]
-        elif word.endswith("ым"):
-            word = word[:-2]
-        elif word.endswith("ой"):
-            word = word[:-2]
-        elif word.endswith("ом"):
-            word = word[:-2]
-        elif word.endswith("ых"):
-            word = word[:-2]
-        elif word.endswith("ую"):
-            word = word[:-2]
-        elif word.endswith("ым"):
-            word = word[:-2]
-        elif word.endswith("ему"):
-            word = word[:-3]
-        elif word.endswith("его"):
-            word = word[:-3]
-        elif word.endswith("ем"):
-            word = word[:-2]
-        elif word.endswith("ом"):
-            word = word[:-2]
-        elif word.endswith("ая"):
-            word = word[:-2]
-        elif word.endswith("яя"):
-            word = word[:-2]
-        elif word.endswith("о"):
-            word = word[:-1]
-        elif word.endswith("е"):
-            word = word[:-1]
-        elif word.endswith("и"):
-            word = word[:-1]
-        elif word.endswith("ы"):
-            word = word[:-1]
-        elif word.endswith("а"):
-            word = word[:-1]
-        elif word.endswith("я"):
-            word = word[:-1]
-        elif word.endswith("у"):
-            word = word[:-1]
-        elif word.endswith("ю"):
-            word = word[:-1]
-        elif word.endswith("с"):
-            word = word[:-1]
-        elif word.endswith("ш"):
-            word = word[:-1]
-        elif word.endswith("ь"):
-            word = word[:-1]
-        
-        lemmas.append(word)
-    return lemmas
+    SCOPE_WINDOW = 5
+    NEG_TOKENS_RU = {'РЅРµ', 'РЅРµС‚', 'РЅРёРєРѕРіРґР°', 'РЅРё', 'РЅРёРєР°Рє', 'РЅРёСЃРєРѕР»СЊРєРѕ'}
+    NEG_TOKENS_EN = {'no', 'not', "n't", 'never', 'neither', 'nor'}
+    all_neg_tokens = NEG_TOKENS_RU | NEG_TOKENS_EN
+
+    tokens = re.findall(r'\b\w+\b', text.lower())
+    if not tokens:
+        return 0.0
+
+    # Р’СЃРµ СЃСѓРёС†РёРґР°Р»СЊРЅС‹Рµ РјР°СЂРєРµСЂС‹ РґР»СЏ РїРѕРёСЃРєР° РІ С‚РѕРєРµРЅР°С…
+    suicidal_stems = [w[:5].lower() for w in (_SUICIDAL_CORE_RU + _SUICIDAL_CORE_EN)]
+    depressive_stems = [w[:5].lower() for w in list(HOPELESSNESS) + list(SUICIDAL_IDEATION)]
+
+    negated_suicidal = 0
+    total_suicidal   = 0
+
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        # РџСЂРѕРІРµСЂСЏРµРј: СЃСѓРёС†РёРґР°Р»СЊРЅС‹Р№ РјР°СЂРєРµСЂ Р±РµР· РѕС‚СЂРёС†Р°РЅРёСЏ?
+        is_suicidal = any(tok.startswith(s) for s in suicidal_stems + depressive_stems)
+        if is_suicidal:
+            total_suicidal += 1
+            # РЎРјРѕС‚СЂРёРј РЅР°Р·Р°Рґ вЂ” РµСЃС‚СЊ Р»Рё РѕС‚СЂРёС†Р°РЅРёРµ РІ РѕРєРЅРµ SCOPE_WINDOW?
+            window_start = max(0, i - SCOPE_WINDOW)
+            window_tokens = tokens[window_start:i]
+            # Р“СЂР°РЅРёС†Р° scope: РѕСЃС‚Р°РЅР°РІР»РёРІР°РµРјСЃСЏ РЅР° СЃС‚РѕРї-СЃР»РѕРІР°С…
+            in_scope = True
+            for wt in reversed(window_tokens):
+                if wt in _SCOPE_STOPWORDS:
+                    in_scope = False
+                    break
+                if wt in all_neg_tokens:
+                    if in_scope:
+                        negated_suicidal += 1
+                    break
+        i += 1
+
+    if total_suicidal == 0:
+        return 0.0
+    return min(negated_suicidal / total_suicidal, 1.0)
 
 
-def find_lexicon_matches(text: str, lexicon: set) -> Tuple[int, List[str]]:
+def _detect_explicit_negation(text: str) -> int:
+    """Р”РµС‚РµРєС‚РёСЂСѓРµС‚ СЏРІРЅС‹Рµ РєРѕРЅСЃС‚СЂСѓРєС†РёРё РѕС‚СЂРёС†Р°РЅРёСЏ СЃСѓРёС†РёРґР°Р»СЊРЅС‹С… РЅР°РјРµСЂРµРЅРёР№."""
+    for pat in _ALL_NEG_PATTERNS:
+        if pat.search(text):
+            return 1
+    return 0
+
+
+def _compute_nli_negation_score(text: str) -> float:
     """
-    Находит количество и список совпадений с лексиконом.
-    Учитывает многословные выражения.
+    РС‚РѕРіРѕРІС‹Р№ NLI-СЃРєРѕСЂ РѕС‚СЂРёС†Р°РЅРёСЏ [0..1].
+    РћР±СЉРµРґРёРЅСЏРµС‚: СЏРІРЅРѕРµ РѕС‚СЂРёС†Р°РЅРёРµ + scope-aware.
     """
-    text_lower = text.lower()
-    count = 0
-    matches = []
-    
-    for phrase in lexicon:
-        # Проверяем точные совпадения
-        if " " in phrase:
-            # Многословное выражение
-            if phrase in text_lower:
-                count += 1
-                matches.append(phrase)
-        else:
-            # Однословное — проверяем как отдельное слово
-            pattern = r'\b' + re.escape(phrase) + r'\b'
-            found = re.findall(pattern, text_lower)
-            count += len(found)
-            matches.extend(found)
-    
-    return count, matches
+    explicit = _detect_explicit_negation(text)
+    if explicit:
+        return 1.0
+    scope_w = _compute_negation_scope_weight(text)
+    return scope_w
+
+
+# ---------------------------------------------------------------------------
+# Р‘Р°Р·РѕРІС‹Рµ С„СѓРЅРєС†РёРё РёР·РІР»РµС‡РµРЅРёСЏ РїСЂРёР·РЅР°РєРѕРІ (РѕСЃС‚Р°РІР»РµРЅС‹ РёР· v1)
+# ---------------------------------------------------------------------------
+
+def _lex_freq(text_lower: str, lexicon: list) -> float:
+    """Р§Р°СЃС‚РѕС‚Р° СЃРѕРІРїР°РґРµРЅРёР№ Р»РµРєСЃРёРєРѕРЅР° РЅР° 100 СЃР»РѕРІ."""
+    words = text_lower.split()
+    n = len(words)
+    if n == 0:
+        return 0.0
+    hits = sum(1 for w in words if any(w.startswith(m[:5].lower()) for m in lexicon))
+    return hits / n * 100
+
+
+def _sentence_count(text: str) -> int:
+    return max(1, len(re.findall(r'[.!?вЂ¦]+', text)) or 1)
+
+
+def _lexical_diversity(words: list) -> float:
+    if len(words) < 2:
+        return 1.0
+    return len(set(words)) / len(words)
 
 
 def extract_features(text: str) -> Dict[str, float]:
     """
-    Извлекает полный набор лингвистических признаков из текста.
-    
-    Returns:
-        dict: словарь признаков -> значения (float)
+    РР·РІР»РµРєР°РµС‚ 32 Р»РёРЅРіРІРёСЃС‚РёС‡РµСЃРєРёС… РїСЂРёР·РЅР°РєР° (v2: +nli_negation_score).
+    РЎРѕРІРјРµСЃС‚РёРј СЃ v1 FEATURE_NAMES (31 РїСЂРёР·РЅР°Рє) + РЅРѕРІС‹Р№ РїСЂРёР·РЅР°Рє.
     """
-    if not text or len(text.strip()) < 3:
-        return {name: 0.0 for name in FEATURE_NAMES}
-    
-    # Базовые текстовые метрики
     text_lower = text.lower()
-    words = text_lower.split()
-    sentences = re.split(r'[.!?]+', text)
-    sentences = [s.strip() for s in sentences if s.strip()]
-    
-    char_count = len(text)
-    word_count = len(words)
-    sentence_count = max(len(sentences), 1)
-    
-    # Средние длины
-    avg_word_len = np.mean([len(w) for w in words]) if words else 0.0
-    avg_sentence_len = word_count / sentence_count if sentence_count > 0 else 0.0
-    
-    # Лемматизированные слова
-    lemmas = lemmatize_text(text)
-    lemma_count = len(lemmas)
-    unique_lemmas = len(set(lemmas))
-    lexical_diversity = unique_lemmas / lemma_count if lemma_count > 0 else 0.0
-    
-    # --- ЛЕКСИКОННЫЙ АНАЛИЗ ---
-    
-    # Безысходность
-    hope_count, _ = find_lexicon_matches(text, HOPELESSNESS)
-    hope_freq = hope_count / word_count * 100 if word_count > 0 else 0.0
-    
-    # Суицидальные маркеры
-    suicide_count, _ = find_lexicon_matches(text, SUICIDAL_IDEATION)
-    suicide_freq = suicide_count / word_count * 100 if word_count > 0 else 0.0
-    
-    # Эмоциональная депрессия
-    depr_count, _ = find_lexicon_matches(text, DEPRESSION_EMOTIONAL)
-    depr_freq = depr_count / word_count * 100 if word_count > 0 else 0.0
-    
-    # Когнитивные искажения
-    cogn_count, _ = find_lexicon_matches(text, COGNITIVE_DISTORTIONS)
-    cogn_freq = cogn_count / word_count * 100 if word_count > 0 else 0.0
-    
-    # Социальная изоляция
-    isol_count, _ = find_lexicon_matches(text, SOCIAL_ISOLATION)
-    isol_freq = isol_count / word_count * 100 if word_count > 0 else 0.0
-    
-    # Физические симптомы
-    phys_count, _ = find_lexicon_matches(text, PHYSICAL_SYMPTOMS)
-    phys_freq = phys_count / word_count * 100 if word_count > 0 else 0.0
-    
-    # Позитивные маркеры
-    pos_count, _ = find_lexicon_matches(text, POSITIVE_MARKERS)
-    pos_freq = pos_count / word_count * 100 if word_count > 0 else 0.0
-    
-    # Интенсификаторы
-    intens_count, _ = find_lexicon_matches(text, INTENSIFIERS)
-    intens_freq = intens_count / word_count * 100 if word_count > 0 else 0.0
-    
-    # Все депрессивные маркеры (комбинированные)
-    all_depr_count = hope_count + suicide_count + depr_count + cogn_count + isol_count + phys_count
-    all_depr_freq = all_depr_count / word_count * 100 if word_count > 0 else 0.0
-    
-    # --- СТИЛИСТИЧЕСКИЕ ПРИЗНАКИ ---
-    
-    # Местоимения "я/меня/мне"
-    i_pattern = r'\b(я|меня|мне|мной|мною|мо[ейё]|мои|моих|моему|моем|моим)\b'
-    i_count = len(re.findall(i_pattern, text_lower))
-    i_freq = i_count / word_count * 100 if word_count > 0 else 0.0
-    
-    # Отрицания
-    neg_pattern = r'\b(не|нет|никогда|ничего|никто|никак|нигде|ни за что|ни о чем|ни к чему|ни с чем|ни на что|ни перед чем|ни после чего|ни от чего|ни к кому|ни с кем|ни о ком|ни за кого|ни перед кем|ни после кого|ни от кого|ни откуда|ни куда|ни от кого|ни с чего|ни на чем|ни в чем|ни о чем|ни при чем|ни при каких|ни в каких|ни на каких|ни в каком|ни в какой|ни в какие|ни в каких|ни о каком|ни о какой|ни о каких|ни о каких|ни для какого|ни для какой|ни для каких|ни из какого|ни из какой|ни из каких|ни по какому|ни по какой|ни по каким|ни с каким|ни с какой|ни с какими|ни у какого|ни у какой|ни у каких|ни за каким|ни за какой|ни за какими|ни над каким|ни над какой|ни над какими|ни под каким|ни под какой|ни под какими|ни перед каким|ни перед какой|ни перед какими|ни при каком|ни при какой|ни при каких|ни после какого|ни после какой|ни после каких|ни между каким|ни между какой|ни между какими|ни внутри какого|ни внутри какой|ни внутри каких|ни вне какого|ни вне какой|ни вне каких|ни против какого|ни против какой|ни против каких|ни вопреки какому|ни вопреки какой|ни вопреки каким|ни благодаря какому|ни благодаря какой|ни благодаря каким|ни согласно какому|ни согласно какой|ни согласно каким|ни ввиду какого|ни ввиду какой|ни ввиду каких|ни вследствие какого|ни вследствие какой|ни вследствие каких|ни вместо какого|ни вместо какой|ни вместо каких|ни ради какого|ни ради какой|ни ради каких|ни несмотря на какое|ни несмотря на какую|ни несмотря на какие|ни несмотря на каких|ни вопреки какому|ни вопреки какой|ни вопреки каким|ни невзирая на какое|ни невзирая на какую|ни невзирая на какие|ни невзирая на каких)\b'
-    neg_count = len(re.findall(neg_pattern, text_lower))
-    neg_freq = neg_count / word_count * 100 if word_count > 0 else 0.0
-    
-    # Вопросительные предложения
-    question_count = text.count('?')
-    question_ratio = question_count / sentence_count if sentence_count > 0 else 0.0
-    
-    # Восклицательные предложения
-    excl_count = text.count('!')
-    excl_ratio = excl_count / sentence_count if sentence_count > 0 else 0.0
-    
-    # Многоточия (паузы, незаконченные мысли)
-    ellipsis_count = text.count('...') + text.count('..') + text.count('…')
-    ellipsis_ratio = ellipsis_count / sentence_count if sentence_count > 0 else 0.0
-    
-    # Заглавные буквы (крик, аффект)
-    caps_words = [w for w in words if w.isupper() and len(w) > 1]
-    caps_freq = len(caps_words) / word_count * 100 if word_count > 0 else 0.0
-    
-    # --- ЭМОЦИОНАЛЬНЫЕ ИНДЕКСЫ ---
-    
-    # Негативный эмоциональный индекс (взвешенная сумма депрессивных маркеров)
-    # Суицидальные маркеры весят больше
-    negative_index = (
-        hope_freq * 1.0 +
-        suicide_freq * 3.0 +
-        depr_freq * 1.5 +
-        cogn_freq * 1.2 +
-        isol_freq * 1.3 +
-        phys_freq * 0.8
-    )
-    
-    # Позитивный эмоциональный индекс
-    positive_index = pos_freq * 2.0
-    
-    # Нетто-эмоциональный баланс
-    emotional_balance = negative_index - positive_index
-    
-    # Индекс интенсификации (усиление эмоций)
-    intensification_index = intens_freq * 1.5
-    
-    # Индекс самообращения (фокус на себе)
-    self_reference_index = i_freq * 1.0
-    
-    # --- КОМПОЗИТНЫЕ МЕТРИКИ ---
-    
-    # Общий депрессивный индекс
-    depression_index = negative_index + intensification_index * 0.5
-    
-    # Суицидальный риск-индекс
-    suicide_risk_index = suicide_freq * 3.0 + hope_freq * 1.5 + cogn_freq * 0.5
-    
-    # Риск/защитный фактор (ratio)
-    risk_protective_ratio = negative_index / (positive_index + 0.01)
-    
-    # Текстовая сложность
-    text_complexity = avg_word_len * avg_sentence_len
-    
-    # --- СТРУКТУРНЫЕ ПРИЗНАКИ ---
-    
-    features = {
-        # Базовые метрики
-        "text_length": float(char_count),
-        "word_count": float(word_count),
-        "sentence_count": float(sentence_count),
-        "avg_word_length": float(avg_word_len),
-        "avg_sentence_length": float(avg_sentence_len),
-        "lexical_diversity": float(lexical_diversity),
-        
-        # Лексиконные частоты
-        "hopelessness_freq": float(hope_freq),
-        "suicidal_freq": float(suicide_freq),
-        "depression_emotional_freq": float(depr_freq),
-        "cognitive_distortions_freq": float(cogn_freq),
-        "social_isolation_freq": float(isol_freq),
-        "physical_symptoms_freq": float(phys_freq),
-        "positive_markers_freq": float(pos_freq),
-        "intensifiers_freq": float(intens_freq),
-        "all_depressive_freq": float(all_depr_freq),
-        
-        # Структурные признаки
-        "i_pronoun_freq": float(i_freq),
-        "negation_freq": float(neg_freq),
-        "question_ratio": float(question_ratio),
-        "exclamation_ratio": float(excl_ratio),
-        "ellipsis_ratio": float(ellipsis_ratio),
-        "caps_freq": float(caps_freq),
-        
-        # Эмоциональные индексы
-        "negative_emotion_index": float(negative_index),
-        "positive_emotion_index": float(positive_index),
-        "emotional_balance": float(emotional_balance),
-        "intensification_index": float(intensification_index),
-        "self_reference_index": float(self_reference_index),
-        
-        # Композитные метрики
-        "depression_index": float(depression_index),
-        "suicide_risk_index": float(suicide_risk_index),
-        "risk_protective_ratio": float(risk_protective_ratio),
-        "text_complexity": float(text_complexity),
+    words = re.findall(r'\b\w+\b', text_lower)
+    n_words = max(len(words), 1)
+    sentences = _sentence_count(text)
+
+    # --- Р‘Р°Р·РѕРІС‹Рµ РјРµС‚СЂРёРєРё ---
+    text_length          = len(text)
+    word_count           = len(words)
+    sentence_count       = sentences
+    avg_word_length      = sum(len(w) for w in words) / n_words
+    avg_sentence_length  = n_words / sentences
+    lexical_diversity    = _lexical_diversity(words)
+
+    # --- Р›РµРєСЃРёРєРѕРЅРЅС‹Рµ РїСЂРёР·РЅР°РєРё ---
+    hopelessness_freq          = _lex_freq(text_lower, HOPELESSNESS)
+    suicidal_freq              = _lex_freq(text_lower, SUICIDAL_IDEATION)
+    depression_emotional_freq  = _lex_freq(text_lower, DEPRESSION_EMOTIONAL)
+    cognitive_distortions_freq = _lex_freq(text_lower, COGNITIVE_DISTORTIONS)
+    social_isolation_freq      = _lex_freq(text_lower, SOCIAL_ISOLATION)
+    physical_symptoms_freq     = _lex_freq(text_lower, PHYSICAL_SYMPTOMS)
+    positive_markers_freq      = _lex_freq(text_lower, POSITIVE_MARKERS)
+    intensifiers_freq          = _lex_freq(text_lower, INTENSIFIERS)
+
+    all_depressive_freq = (hopelessness_freq + suicidal_freq +
+                           depression_emotional_freq + cognitive_distortions_freq +
+                           social_isolation_freq + physical_symptoms_freq) / 6
+
+    # --- РЎС‚РёР»РёСЃС‚РёС‡РµСЃРєРёРµ ---
+    i_pronouns_ru = {'СЏ', 'РјРµРЅСЏ', 'РјРЅРµ', 'РјРЅРѕР№', 'РјРѕСЋ', 'РјРѕСЏ', 'РјРѕС‘', 'РјРѕРµРіРѕ'}
+    i_pronouns_en = {'i', 'me', 'my', 'mine', 'myself'}
+    neg_tokens_ru = {'РЅРµ', 'РЅРµС‚', 'РЅРёРєРѕРіРґР°', 'РЅРё', 'РЅРёРєР°Рє'}
+    neg_tokens_en = {'no', 'not', "n't", 'never'}
+
+    i_pronoun_freq = sum(1 for w in words
+                         if w in i_pronouns_ru or w in i_pronouns_en) / n_words * 100
+    negation_freq  = sum(1 for w in words
+                         if w in neg_tokens_ru or w in neg_tokens_en) / n_words * 100
+
+    question_ratio    = text.count('?') / n_words
+    exclamation_ratio = text.count('!') / n_words
+    ellipsis_ratio    = text.count('...') / n_words
+    caps_freq         = sum(1 for c in text if c.isupper()) / max(len(text), 1)
+
+    # --- РЎРѕСЃС‚Р°РІРЅС‹Рµ РёРЅРґРµРєСЃС‹ ---
+    negative_emotion_index  = (hopelessness_freq + depression_emotional_freq) / 2
+    positive_emotion_index  = positive_markers_freq
+    emotional_balance       = positive_emotion_index - negative_emotion_index
+    intensification_index   = intensifiers_freq
+    self_reference_index    = i_pronoun_freq
+    depression_index        = (hopelessness_freq * 1.5 + depression_emotional_freq +
+                               cognitive_distortions_freq * 1.2) / 3
+    suicide_risk_index      = (suicidal_freq * 3 + hopelessness_freq * 2 +
+                               social_isolation_freq) / 6
+    risk_protective_ratio   = (suicide_risk_index + 1e-9) / (positive_emotion_index + 1e-9)
+    text_complexity         = avg_word_length * avg_sentence_length / 10
+
+    # --- РЈР›РЈР§РЁР•РќРР• #4: NLI-РѕС‚СЂРёС†Р°РЅРёРµ (scope-aware + СЏРІРЅС‹Рµ РїР°С‚С‚РµСЂРЅС‹) ---
+    negation_of_suicidal_intent = _detect_explicit_negation(text)
+    nli_negation_score          = _compute_nli_negation_score(text)
+
+    return {
+        # 31 Р±Р°Р·РѕРІС‹С… РїСЂРёР·РЅР°РєР° (СЃРѕРІРјРµСЃС‚РёРјРѕСЃС‚СЊ СЃ v1)
+        'text_length':                  text_length,
+        'word_count':                   word_count,
+        'sentence_count':               sentence_count,
+        'avg_word_length':              avg_word_length,
+        'avg_sentence_length':          avg_sentence_length,
+        'lexical_diversity':            lexical_diversity,
+        'hopelessness_freq':            hopelessness_freq,
+        'suicidal_freq':                suicidal_freq,
+        'depression_emotional_freq':    depression_emotional_freq,
+        'cognitive_distortions_freq':   cognitive_distortions_freq,
+        'social_isolation_freq':        social_isolation_freq,
+        'physical_symptoms_freq':       physical_symptoms_freq,
+        'positive_markers_freq':        positive_markers_freq,
+        'intensifiers_freq':            intensifiers_freq,
+        'all_depressive_freq':          all_depressive_freq,
+        'i_pronoun_freq':               i_pronoun_freq,
+        'negation_freq':                negation_freq,
+        'question_ratio':               question_ratio,
+        'exclamation_ratio':            exclamation_ratio,
+        'ellipsis_ratio':               ellipsis_ratio,
+        'caps_freq':                    caps_freq,
+        'negative_emotion_index':       negative_emotion_index,
+        'positive_emotion_index':       positive_emotion_index,
+        'emotional_balance':            emotional_balance,
+        'intensification_index':        intensification_index,
+        'self_reference_index':         self_reference_index,
+        'depression_index':             depression_index,
+        'suicide_risk_index':           suicide_risk_index,
+        'risk_protective_ratio':        risk_protective_ratio,
+        'text_complexity':              text_complexity,
+        'negation_of_suicidal_intent':  negation_of_suicidal_intent,
+        # РќРѕРІС‹Р№ РїСЂРёР·РЅР°Рє v2
+        'nli_negation_score':           nli_negation_score,
     }
-    
-    return features
 
 
-# Список имён признаков (для создания DataFrame)
-FEATURE_NAMES = [
-    "text_length",
-    "word_count",
-    "sentence_count",
-    "avg_word_length",
-    "avg_sentence_length",
-    "lexical_diversity",
-    "hopelessness_freq",
-    "suicidal_freq",
-    "depression_emotional_freq",
-    "cognitive_distortions_freq",
-    "social_isolation_freq",
-    "physical_symptoms_freq",
-    "positive_markers_freq",
-    "intensifiers_freq",
-    "all_depressive_freq",
-    "i_pronoun_freq",
-    "negation_freq",
-    "question_ratio",
-    "exclamation_ratio",
-    "ellipsis_ratio",
-    "caps_freq",
-    "negative_emotion_index",
-    "positive_emotion_index",
-    "emotional_balance",
-    "intensification_index",
-    "self_reference_index",
-    "depression_index",
-    "suicide_risk_index",
-    "risk_protective_ratio",
-    "text_complexity",
+# РЎРїРёСЃРѕРє РїСЂРёР·РЅР°РєРѕРІ РґР»СЏ РјРѕРґРµР»Рё (32 = 31 + 1 РЅРѕРІС‹Р№)
+FEATURE_NAMES_V1 = [
+    'text_length', 'word_count', 'sentence_count', 'avg_word_length',
+    'avg_sentence_length', 'lexical_diversity', 'hopelessness_freq',
+    'suicidal_freq', 'depression_emotional_freq', 'cognitive_distortions_freq',
+    'social_isolation_freq', 'physical_symptoms_freq', 'positive_markers_freq',
+    'intensifiers_freq', 'all_depressive_freq', 'i_pronoun_freq',
+    'negation_freq', 'question_ratio', 'exclamation_ratio', 'ellipsis_ratio',
+    'caps_freq', 'negative_emotion_index', 'positive_emotion_index',
+    'emotional_balance', 'intensification_index', 'self_reference_index',
+    'depression_index', 'suicide_risk_index', 'risk_protective_ratio',
+    'text_complexity', 'negation_of_suicidal_intent',
 ]
+
+FEATURE_NAMES_V2 = FEATURE_NAMES_V1 + ['nli_negation_score']
+
+# РћР±СЂР°С‚РЅР°СЏ СЃРѕРІРјРµСЃС‚РёРјРѕСЃС‚СЊ
+FEATURE_NAMES = FEATURE_NAMES_V1

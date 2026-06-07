@@ -1,15 +1,15 @@
 """
-Мастер-скрипт: обучение всех моделей + бенчмарк + финальная модель.
+РњР°СЃС‚РµСЂ-СЃРєСЂРёРїС‚: РѕР±СѓС‡РµРЅРёРµ РІСЃРµС… РјРѕРґРµР»РµР№ + Р±РµРЅС‡РјР°СЂРє + С„РёРЅР°Р»СЊРЅР°СЏ РјРѕРґРµР»СЊ.
 
-Этапы:
-1. Генерация/загрузка датасета
-2. Обучение CatBoost (гибридная модель)
-3. Обучение RuBERT Fine-tuned
-4. Сравнительный бенчмарк
-5. Создание ансамбля
-6. Сохранение финальной модели для бота
+Р­С‚Р°РїС‹:
+1. Р“РµРЅРµСЂР°С†РёСЏ/Р·Р°РіСЂСѓР·РєР° РґР°С‚Р°СЃРµС‚Р°
+2. РћР±СѓС‡РµРЅРёРµ CatBoost (РіРёР±СЂРёРґРЅР°СЏ РјРѕРґРµР»СЊ)
+3. РћР±СѓС‡РµРЅРёРµ RuBERT Fine-tuned
+4. РЎСЂР°РІРЅРёС‚РµР»СЊРЅС‹Р№ Р±РµРЅС‡РјР°СЂРє
+5. РЎРѕР·РґР°РЅРёРµ Р°РЅСЃР°РјР±Р»СЏ
+6. РЎРѕС…СЂР°РЅРµРЅРёРµ С„РёРЅР°Р»СЊРЅРѕР№ РјРѕРґРµР»Рё РґР»СЏ Р±РѕС‚Р°
 
-Запуск: python run_all.py
+Р—Р°РїСѓСЃРє: python run_all.py
 """
 
 import os
@@ -22,15 +22,15 @@ import warnings
 warnings.filterwarnings('ignore')
 
 print("=" * 70)
-print("ГИБРИДНАЯ МОДЕЛЬ ВЫЯВЛЕНИЯ ДЕПРЕССИИ И СУИЦИДАЛЬНЫХ ТЕКСТОВ")
-print("Мастер-скрипт обучения")
+print("Р“РР‘Р РР”РќРђРЇ РњРћР”Р•Р›Р¬ Р’Р«РЇР’Р›Р•РќРРЇ Р”Р•РџР Р•РЎРЎРР Р РЎРЈРР¦РР”РђР›Р¬РќР«РҐ РўР•РљРЎРўРћР’")
+print("РњР°СЃС‚РµСЂ-СЃРєСЂРёРїС‚ РѕР±СѓС‡РµРЅРёСЏ")
 print("=" * 70)
 
 # ==========================================
-# ШАГ 1: ДАТАСЕТ
+# РЁРђР“ 1: Р”РђРўРђРЎР•Рў
 # ==========================================
 
-print("\n[ШАГ 1/6] Загрузка датасета...")
+print("\n[РЁРђР“ 1/6] Р—Р°РіСЂСѓР·РєР° РґР°С‚Р°СЃРµС‚Р°...")
 
 from dataset_loader import create_demo_dataset, create_train_test_split
 
@@ -40,45 +40,45 @@ X_train, X_test, y_train, y_test = create_train_test_split(
 )
 
 # ==========================================
-# ШАГ 2: CATBOOST (гибридная модель)
+# РЁРђР“ 2: CATBOOST (РіРёР±СЂРёРґРЅР°СЏ РјРѕРґРµР»СЊ)
 # ==========================================
 
-print("\n[ШАГ 2/6] Обучение CatBoost (гибридная модель)...")
+print("\n[РЁРђР“ 2/6] РћР±СѓС‡РµРЅРёРµ CatBoost (РіРёР±СЂРёРґРЅР°СЏ РјРѕРґРµР»СЊ)...")
 
 from sentence_transformers import SentenceTransformer
 from catboost import CatBoostClassifier
 from sklearn.metrics import f1_score, roc_auc_score, accuracy_score
 from feature_extractor import extract_features, FEATURE_NAMES
 
-print("  Загрузка sentence-transformers...")
+print("  Р—Р°РіСЂСѓР·РєР° sentence-transformers...")
 encoder = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cpu")
 
-print("  Создание эмбеддингов train...")
+print("  РЎРѕР·РґР°РЅРёРµ СЌРјР±РµРґРґРёРЅРіРѕРІ train...")
 X_train_emb = encoder.encode(X_train.tolist(), convert_to_numpy=True, show_progress_bar=True)
 X_test_emb = encoder.encode(X_test.tolist(), convert_to_numpy=True, show_progress_bar=True)
 
-print("  Извлечение лингвистических признаков train...")
+print("  РР·РІР»РµС‡РµРЅРёРµ Р»РёРЅРіРІРёСЃС‚РёС‡РµСЃРєРёС… РїСЂРёР·РЅР°РєРѕРІ train...")
 train_meta = []
 for text in X_train:
     features = extract_features(text)
     train_meta.append([features[name] for name in FEATURE_NAMES])
 train_meta = np.array(train_meta)
 
-print("  Извлечение лингвистических признаков test...")
+print("  РР·РІР»РµС‡РµРЅРёРµ Р»РёРЅРіРІРёСЃС‚РёС‡РµСЃРєРёС… РїСЂРёР·РЅР°РєРѕРІ test...")
 test_meta = []
 for text in X_test:
     features = extract_features(text)
     test_meta.append([features[name] for name in FEATURE_NAMES])
 test_meta = np.array(test_meta)
 
-# Объединяем
+# РћР±СЉРµРґРёРЅСЏРµРј
 X_train_cb = np.hstack((X_train_emb, train_meta))
 X_test_cb = np.hstack((X_test_emb, test_meta))
 
-print(f"  Размерность CatBoost: {X_train_cb.shape}")
+print(f"  Р Р°Р·РјРµСЂРЅРѕСЃС‚СЊ CatBoost: {X_train_cb.shape}")
 
-# Обучение
-print("  Обучение CatBoost...")
+# РћР±СѓС‡РµРЅРёРµ
+print("  РћР±СѓС‡РµРЅРёРµ CatBoost...")
 cb_model = CatBoostClassifier(
     iterations=300,
     learning_rate=0.05,
@@ -94,7 +94,7 @@ cb_model = CatBoostClassifier(
 
 cb_model.fit(X_train_cb, y_train, eval_set=(X_test_cb, y_test), verbose=50)
 
-# Метрики
+# РњРµС‚СЂРёРєРё
 y_pred_cb_proba = cb_model.predict_proba(X_test_cb)[:, 1]
 y_pred_cb = (y_pred_cb_proba >= 0.5).astype(int)
 
@@ -103,29 +103,29 @@ cb_metrics = {
     'f1': float(f1_score(y_test, y_pred_cb)),
     'roc_auc': float(roc_auc_score(y_test, y_pred_cb_proba)),
 }
-print(f"\n  CatBoost метрики: {cb_metrics}")
+print(f"\n  CatBoost РјРµС‚СЂРёРєРё: {cb_metrics}")
 
-# Сохранение
+# РЎРѕС…СЂР°РЅРµРЅРёРµ
 cb_model.save_model("cb_suicide_model.cbm")
-print("  Сохранено: cb_suicide_model.cbm")
+print("  РЎРѕС…СЂР°РЅРµРЅРѕ: cb_suicide_model.cbm")
 
 # ==========================================
-# ШАГ 3: RuBERT (опционально)
+# РЁРђР“ 3: RuBERT (РѕРїС†РёРѕРЅР°Р»СЊРЅРѕ)
 # ==========================================
 
-print("\n[ШАГ 3/6] Обучение RuBERT (опционально)...")
+print("\n[РЁРђР“ 3/6] РћР±СѓС‡РµРЅРёРµ RuBERT (РѕРїС†РёРѕРЅР°Р»СЊРЅРѕ)...")
 
 try:
     import torch
     from transformers import AutoTokenizer, AutoModel
     from sklearn.linear_model import LogisticRegression
     
-    print("  Загрузка RuBERT...")
+    print("  Р—Р°РіСЂСѓР·РєР° RuBERT...")
     tokenizer = AutoTokenizer.from_pretrained("DeepPavlov/rubert-base-cased")
     model = AutoModel.from_pretrained("DeepPavlov/rubert-base-cased")
     
-    # Для CPU на маленьком датасете — быстрый baseline
-    print("  Извлечение [CLS]-эмбеддингов (это займёт время)...")
+    # Р”Р»СЏ CPU РЅР° РјР°Р»РµРЅСЊРєРѕРј РґР°С‚Р°СЃРµС‚Рµ вЂ” Р±С‹СЃС‚СЂС‹Р№ baseline
+    print("  РР·РІР»РµС‡РµРЅРёРµ [CLS]-СЌРјР±РµРґРґРёРЅРіРѕРІ (СЌС‚Рѕ Р·Р°Р№РјС‘С‚ РІСЂРµРјСЏ)...")
     
     def get_cls_embeddings(texts, batch_size=8):
         model.eval()
@@ -142,7 +142,7 @@ try:
     X_train_ru = get_cls_embeddings(X_train)
     X_test_ru = get_cls_embeddings(X_test)
     
-    print("  Обучение LogReg на RuBERT [CLS]...")
+    print("  РћР±СѓС‡РµРЅРёРµ LogReg РЅР° RuBERT [CLS]...")
     lr_model = LogisticRegression(max_iter=1000, class_weight="balanced")
     lr_model.fit(X_train_ru, y_train)
     
@@ -154,29 +154,29 @@ try:
         'f1': float(f1_score(y_test, y_pred_lr)),
         'roc_auc': float(roc_auc_score(y_test, y_pred_lr_proba)),
     }
-    print(f"\n  RuBERT+LogReg метрики: {lr_metrics}")
+    print(f"\n  RuBERT+LogReg РјРµС‚СЂРёРєРё: {lr_metrics}")
     
-    # Сохраняем
+    # РЎРѕС…СЂР°РЅСЏРµРј
     with open("rubert_logreg_model.pkl", "wb") as f:
         pickle.dump(lr_model, f)
-    print("  Сохранено: rubert_logreg_model.pkl")
+    print("  РЎРѕС…СЂР°РЅРµРЅРѕ: rubert_logreg_model.pkl")
     
     rubert_available = True
     
 except ImportError:
-    print("  ? transformers/torch не установлены. Пропускаем RuBERT.")
+    print("  ? transformers/torch РЅРµ СѓСЃС‚Р°РЅРѕРІР»РµРЅС‹. РџСЂРѕРїСѓСЃРєР°РµРј RuBERT.")
     rubert_available = False
     y_pred_lr_proba = None
     lr_metrics = None
 
 # ==========================================
-# ШАГ 4: БЕНЧМАРК
+# РЁРђР“ 4: Р‘Р•РќР§РњРђР Рљ
 # ==========================================
 
-print("\n[ШАГ 4/6] Сравнительный анализ...")
+print("\n[РЁРђР“ 4/6] РЎСЂР°РІРЅРёС‚РµР»СЊРЅС‹Р№ Р°РЅР°Р»РёР·...")
 
 predictions = {
-    'CatBoost (гибридная)': {
+    'CatBoost (РіРёР±СЂРёРґРЅР°СЏ)': {
         'proba': y_pred_cb_proba,
         'pred': y_pred_cb,
     }
@@ -188,11 +188,11 @@ if rubert_available and y_pred_lr_proba is not None:
         'pred': y_pred_lr,
     }
     
-    # Ансамбль
+    # РђРЅСЃР°РјР±Р»СЊ
     ensemble_proba = 0.6 * y_pred_cb_proba + 0.4 * y_pred_lr_proba
     ensemble_pred = (ensemble_proba >= 0.5).astype(int)
     
-    predictions['Ансамбль (CatBoost+RuBERT)'] = {
+    predictions['РђРЅСЃР°РјР±Р»СЊ (CatBoost+RuBERT)'] = {
         'proba': ensemble_proba,
         'pred': ensemble_pred,
     }
@@ -202,13 +202,13 @@ if rubert_available and y_pred_lr_proba is not None:
         'f1': float(f1_score(y_test, ensemble_pred)),
         'roc_auc': float(roc_auc_score(y_test, ensemble_proba)),
     }
-    print(f"  Ансамбль метрики: {ensemble_metrics}")
+    print(f"  РђРЅСЃР°РјР±Р»СЊ РјРµС‚СЂРёРєРё: {ensemble_metrics}")
 
-# Создаём таблицу
+# РЎРѕР·РґР°С‘Рј С‚Р°Р±Р»РёС†Сѓ
 results = []
 for name, preds in predictions.items():
     results.append({
-        'Модель': name,
+        'РњРѕРґРµР»СЊ': name,
         'Accuracy': round(accuracy_score(y_test, preds['pred']), 3),
         'F1': round(f1_score(y_test, preds['pred']), 3),
         'ROC-AUC': round(roc_auc_score(y_test, preds['proba']), 3),
@@ -224,10 +224,10 @@ print("=" * 50)
 results_df.to_csv("benchmark_results.csv", index=False, encoding='utf-8-sig')
 
 # ==========================================
-# ШАГ 5: ВАЖНОСТЬ ПРИЗНАКОВ
+# РЁРђР“ 5: Р’РђР–РќРћРЎРўР¬ РџР РР—РќРђРљРћР’
 # ==========================================
 
-print("\n[ШАГ 5/6] Анализ важности признаков...")
+print("\n[РЁРђР“ 5/6] РђРЅР°Р»РёР· РІР°Р¶РЅРѕСЃС‚Рё РїСЂРёР·РЅР°РєРѕРІ...")
 
 import matplotlib.pyplot as plt
 
@@ -235,32 +235,32 @@ feature_importances = cb_model.get_feature_importance()
 embedding_imp = np.sum(feature_importances[:384])
 meta_imp = feature_importances[384:]
 
-importance_dict = {"Эмбеддинги (нейросеть)": embedding_imp}
+importance_dict = {"Р­РјР±РµРґРґРёРЅРіРё (РЅРµР№СЂРѕСЃРµС‚СЊ)": embedding_imp}
 for name, imp in zip(FEATURE_NAMES, meta_imp):
     importance_dict[name] = imp
 
 plt.figure(figsize=(12, 10))
 imp_series = pd.Series(importance_dict).sort_values(ascending=True)
 imp_series.plot(kind='barh', color='teal')
-plt.title("Вклад признаков в выявление депрессии (Feature Importance)")
-plt.xlabel("Важность")
+plt.title("Р’РєР»Р°Рґ РїСЂРёР·РЅР°РєРѕРІ РІ РІС‹СЏРІР»РµРЅРёРµ РґРµРїСЂРµСЃСЃРёРё (Feature Importance)")
+plt.xlabel("Р’Р°Р¶РЅРѕСЃС‚СЊ")
 plt.tight_layout()
 plt.savefig("feature_importance.png", dpi=150)
-print("  Сохранено: feature_importance.png")
+print("  РЎРѕС…СЂР°РЅРµРЅРѕ: feature_importance.png")
 
-# Топ-10 лингвистических
+# РўРѕРї-10 Р»РёРЅРіРІРёСЃС‚РёС‡РµСЃРєРёС…
 meta_imp_series = pd.Series(dict(zip(FEATURE_NAMES, meta_imp))).sort_values(ascending=False)
-print(f"\n  Топ-10 лингвистических признаков:")
+print(f"\n  РўРѕРї-10 Р»РёРЅРіРІРёСЃС‚РёС‡РµСЃРєРёС… РїСЂРёР·РЅР°РєРѕРІ:")
 for name, val in meta_imp_series.head(10).items():
     print(f"    {name}: {val:.2f}")
 
 # ==========================================
-# ШАГ 6: СОХРАНЕНИЕ КОНФИГА
+# РЁРђР“ 6: РЎРћРҐР РђРќР•РќРР• РљРћРќР¤РР“Рђ
 # ==========================================
 
-print("\n[ШАГ 6/6] Сохранение конфигурации...")
+print("\n[РЁРђР“ 6/6] РЎРѕС…СЂР°РЅРµРЅРёРµ РєРѕРЅС„РёРіСѓСЂР°С†РёРё...")
 
-# Подбор порога
+# РџРѕРґР±РѕСЂ РїРѕСЂРѕРіР°
 from sklearn.metrics import precision_recall_curve
 precisions, recalls, thresholds = precision_recall_curve(y_test, y_pred_cb_proba)
 f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-8)
@@ -281,29 +281,29 @@ config = {
         "ensemble": ensemble_metrics if rubert_available else None,
     },
     "benchmark": results,
-    "best_model": "catboost",  # Или ensemble
+    "best_model": "catboost",  # РР»Рё ensemble
 }
 
 with open("model_config.json", "w", encoding="utf-8") as f:
     json.dump(config, f, ensure_ascii=False, indent=2)
 
-print(f"  Сохранено: model_config.json")
-print(f"  Оптимальный порог: {best_threshold:.3f}")
+print(f"  РЎРѕС…СЂР°РЅРµРЅРѕ: model_config.json")
+print(f"  РћРїС‚РёРјР°Р»СЊРЅС‹Р№ РїРѕСЂРѕРі: {best_threshold:.3f}")
 
 # ==========================================
-# ФИНАЛ
+# Р¤РРќРђР›
 # ==========================================
 
 print("\n" + "=" * 70)
-print("ОБУЧЕНИЕ ЗАВЕРШЕНО!")
+print("РћР‘РЈР§Р•РќРР• Р—РђР’Р•Р РЁР•РќРћ!")
 print("=" * 70)
-print(f"\nФайлы проекта:")
-print(f"  • cb_suicide_model.cbm       — CatBoost модель")
+print(f"\nР¤Р°Р№Р»С‹ РїСЂРѕРµРєС‚Р°:")
+print(f"  вЂў cb_suicide_model.cbm       вЂ” CatBoost РјРѕРґРµР»СЊ")
 if rubert_available:
-    print(f"  • rubert_logreg_model.pkl    — RuBERT + LogReg")
-print(f"  • model_config.json          — конфигурация")
-print(f"  • feature_importance.png     — график важности")
-print(f"  • benchmark_results.csv      — сравнительная таблица")
-print(f"  • dataset.csv                — датасет")
-print(f"\nСледующий шаг: python bot.py")
+    print(f"  вЂў rubert_logreg_model.pkl    вЂ” RuBERT + LogReg")
+print(f"  вЂў model_config.json          вЂ” РєРѕРЅС„РёРіСѓСЂР°С†РёСЏ")
+print(f"  вЂў feature_importance.png     вЂ” РіСЂР°С„РёРє РІР°Р¶РЅРѕСЃС‚Рё")
+print(f"  вЂў benchmark_results.csv      вЂ” СЃСЂР°РІРЅРёС‚РµР»СЊРЅР°СЏ С‚Р°Р±Р»РёС†Р°")
+print(f"  вЂў dataset.csv                вЂ” РґР°С‚Р°СЃРµС‚")
+print(f"\nРЎР»РµРґСѓСЋС‰РёР№ С€Р°Рі: python bot.py")
 print("=" * 70)

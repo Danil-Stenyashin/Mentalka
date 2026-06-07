@@ -1,10 +1,10 @@
 """
-SHAP-визуализация для интерпретации предсказаний модели.
+SHAP-РІРёР·СѓР°Р»РёР·Р°С†РёСЏ РґР»СЏ РёРЅС‚РµСЂРїСЂРµС‚Р°С†РёРё РїСЂРµРґСЃРєР°Р·Р°РЅРёР№ РјРѕРґРµР»Рё.
 
-Показывает, какие признаки повлияли на конкретное предсказание.
-Идеально для курсовой работы — демонстрирует "почему модель так решила".
+РџРѕРєР°Р·С‹РІР°РµС‚, РєР°РєРёРµ РїСЂРёР·РЅР°РєРё РїРѕРІР»РёСЏР»Рё РЅР° РєРѕРЅРєСЂРµС‚РЅРѕРµ РїСЂРµРґСЃРєР°Р·Р°РЅРёРµ.
+РРґРµР°Р»СЊРЅРѕ РґР»СЏ РєСѓСЂСЃРѕРІРѕР№ СЂР°Р±РѕС‚С‹ вЂ” РґРµРјРѕРЅСЃС‚СЂРёСЂСѓРµС‚ "РїРѕС‡РµРјСѓ РјРѕРґРµР»СЊ С‚Р°Рє СЂРµС€РёР»Р°".
 
-Требования:
+РўСЂРµР±РѕРІР°РЅРёСЏ:
     pip install shap
 """
 
@@ -22,25 +22,25 @@ def explain_prediction(text: str, model_path="cb_suicide_model.cbm",
                        config_path="model_config.json",
                        output_path="shap_explanation.png"):
     """
-    Создаёт SHAP-визуализацию для одного текста.
+    РЎРѕР·РґР°С‘С‚ SHAP-РІРёР·СѓР°Р»РёР·Р°С†РёСЋ РґР»СЏ РѕРґРЅРѕРіРѕ С‚РµРєСЃС‚Р°.
     
     Returns:
         shap_values, prediction_proba
     """
     print(f"\n{'='*60}")
-    print(f"SHAP-анализ текста: '{text[:50]}...'")
+    print(f"SHAP-Р°РЅР°Р»РёР· С‚РµРєСЃС‚Р°: '{text[:50]}...'")
     print(f"{'='*60}")
     
-    # 1. Загрузка модели
-    print("[1/4] Загрузка модели...")
+    # 1. Р—Р°РіСЂСѓР·РєР° РјРѕРґРµР»Рё
+    print("[1/4] Р—Р°РіСЂСѓР·РєР° РјРѕРґРµР»Рё...")
     model = CatBoostClassifier()
     model.load_model(model_path)
     
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
     
-    # 2. Создание признаков
-    print("[2/4] Извлечение признаков...")
+    # 2. РЎРѕР·РґР°РЅРёРµ РїСЂРёР·РЅР°РєРѕРІ
+    print("[2/4] РР·РІР»РµС‡РµРЅРёРµ РїСЂРёР·РЅР°РєРѕРІ...")
     encoder = SentenceTransformer(config["embedding_model"])
     
     vec = encoder.encode([text], convert_to_numpy=True)
@@ -48,12 +48,12 @@ def explain_prediction(text: str, model_path="cb_suicide_model.cbm",
     meta = np.array([features[name] for name in FEATURE_NAMES]).reshape(1, -1)
     X = np.hstack((vec, meta))
     
-    # 3. Предсказание
+    # 3. РџСЂРµРґСЃРєР°Р·Р°РЅРёРµ
     proba = float(model.predict_proba(X)[0][1])
-    print(f"[3/4] Предсказание: {proba:.1%}")
+    print(f"[3/4] РџСЂРµРґСЃРєР°Р·Р°РЅРёРµ: {proba:.1%}")
     
     # 4. SHAP
-    print("[4/4] Расчёт SHAP-значений...")
+    print("[4/4] Р Р°СЃС‡С‘С‚ SHAP-Р·РЅР°С‡РµРЅРёР№...")
     
     # CatBoost SHAP
     shap_values = model.get_feature_importance(
@@ -61,20 +61,20 @@ def explain_prediction(text: str, model_path="cb_suicide_model.cbm",
         data=X
     )
     
-    # Построение вручную (для CatBoost используем встроенный get_feature_importance)
-    # Создаём DataFrame для визуализации
+    # РџРѕСЃС‚СЂРѕРµРЅРёРµ РІСЂСѓС‡РЅСѓСЋ (РґР»СЏ CatBoost РёСЃРїРѕР»СЊР·СѓРµРј РІСЃС‚СЂРѕРµРЅРЅС‹Р№ get_feature_importance)
+    # РЎРѕР·РґР°С‘Рј DataFrame РґР»СЏ РІРёР·СѓР°Р»РёР·Р°С†РёРё
     all_names = [f"emb_{i}" for i in range(config["embedding_dim"])] + FEATURE_NAMES
     
-    # Получаем важность признаков для этого конкретного текста
+    # РџРѕР»СѓС‡Р°РµРј РІР°Р¶РЅРѕСЃС‚СЊ РїСЂРёР·РЅР°РєРѕРІ РґР»СЏ СЌС‚РѕРіРѕ РєРѕРЅРєСЂРµС‚РЅРѕРіРѕ С‚РµРєСЃС‚Р°
     feature_importance = model.get_feature_importance(
         data=shap.Pool(X),
         type="ShapValues"
     )[0]
     
-    # Берём только лингвистические (эмбеддинги неинтерпретируемы)
+    # Р‘РµСЂС‘Рј С‚РѕР»СЊРєРѕ Р»РёРЅРіРІРёСЃС‚РёС‡РµСЃРєРёРµ (СЌРјР±РµРґРґРёРЅРіРё РЅРµРёРЅС‚РµСЂРїСЂРµС‚РёСЂСѓРµРјС‹)
     meta_shap = feature_importance[config["embedding_dim"]:]
     
-    # Создаём DataFrame для сортировки
+    # РЎРѕР·РґР°С‘Рј DataFrame РґР»СЏ СЃРѕСЂС‚РёСЂРѕРІРєРё
     shap_df = pd.DataFrame({
         'feature': FEATURE_NAMES,
         'shap_value': meta_shap,
@@ -83,42 +83,42 @@ def explain_prediction(text: str, model_path="cb_suicide_model.cbm",
     shap_df['abs_shap'] = shap_df['shap_value'].abs()
     shap_df = shap_df.sort_values('abs_shap', ascending=False).head(15)
     
-    # Визуализация
+    # Р’РёР·СѓР°Р»РёР·Р°С†РёСЏ
     fig, axes = plt.subplots(1, 2, figsize=(16, 8))
     
-    # График 1: Водопад (waterfall-like)
+    # Р“СЂР°С„РёРє 1: Р’РѕРґРѕРїР°Рґ (waterfall-like)
     ax1 = axes[0]
     colors = ['#e74c3c' if v > 0 else '#2ecc71' for v in shap_df['shap_value']]
     bars = ax1.barh(range(len(shap_df)), shap_df['shap_value'], color=colors)
     ax1.set_yticks(range(len(shap_df)))
     ax1.set_yticklabels(shap_df['feature'], fontsize=9)
     ax1.axvline(x=0, color='black', linewidth=0.8)
-    ax1.set_xlabel('SHAP value (влияние на предсказание)', fontsize=11)
-    ax1.set_title(f'Топ-15 лингвистических признаков\nПредсказание: {proba:.1%}', 
+    ax1.set_xlabel('SHAP value (РІР»РёСЏРЅРёРµ РЅР° РїСЂРµРґСЃРєР°Р·Р°РЅРёРµ)', fontsize=11)
+    ax1.set_title(f'РўРѕРї-15 Р»РёРЅРіРІРёСЃС‚РёС‡РµСЃРєРёС… РїСЂРёР·РЅР°РєРѕРІ\nРџСЂРµРґСЃРєР°Р·Р°РЅРёРµ: {proba:.1%}', 
                   fontsize=12, fontweight='bold')
     ax1.invert_yaxis()
     
-    # Добавляем значения
+    # Р”РѕР±Р°РІР»СЏРµРј Р·РЅР°С‡РµРЅРёСЏ
     for i, (bar, val) in enumerate(zip(bars, shap_df['shap_value'])):
         ax1.text(val + (0.001 if val > 0 else -0.001), i, 
                 f'{val:+.3f}', va='center', 
                 ha='left' if val > 0 else 'right', fontsize=8)
     
-    # График 2: Распределение категорий
+    # Р“СЂР°С„РёРє 2: Р Р°СЃРїСЂРµРґРµР»РµРЅРёРµ РєР°С‚РµРіРѕСЂРёР№
     ax2 = axes[1]
     
-    # Группируем по категориям
+    # Р“СЂСѓРїРїРёСЂСѓРµРј РїРѕ РєР°С‚РµРіРѕСЂРёСЏРј
     categories = {
-        'Безысходность': ['hopelessness_freq', 'depression_index'],
-        'Суицидальные': ['suicidal_freq', 'suicide_risk_index'],
-        'Когнитивные': ['cognitive_distortions_freq'],
-        'Соц. изоляция': ['social_isolation_freq'],
-        'Физические': ['physical_symptoms_freq'],
-        'Позитивные': ['positive_markers_freq'],
-        'Интенсификация': ['intensification_index'],
-        'Самообращение': ['i_pronoun_freq'],
-        'Эмоц. баланс': ['emotional_balance', 'negative_emotion_index'],
-        'Структурные': ['text_length', 'word_count', 'lexical_diversity'],
+        'Р‘РµР·С‹СЃС…РѕРґРЅРѕСЃС‚СЊ': ['hopelessness_freq', 'depression_index'],
+        'РЎСѓРёС†РёРґР°Р»СЊРЅС‹Рµ': ['suicidal_freq', 'suicide_risk_index'],
+        'РљРѕРіРЅРёС‚РёРІРЅС‹Рµ': ['cognitive_distortions_freq'],
+        'РЎРѕС†. РёР·РѕР»СЏС†РёСЏ': ['social_isolation_freq'],
+        'Р¤РёР·РёС‡РµСЃРєРёРµ': ['physical_symptoms_freq'],
+        'РџРѕР·РёС‚РёРІРЅС‹Рµ': ['positive_markers_freq'],
+        'РРЅС‚РµРЅСЃРёС„РёРєР°С†РёСЏ': ['intensification_index'],
+        'РЎР°РјРѕРѕР±СЂР°С‰РµРЅРёРµ': ['i_pronoun_freq'],
+        'Р­РјРѕС†. Р±Р°Р»Р°РЅСЃ': ['emotional_balance', 'negative_emotion_index'],
+        'РЎС‚СЂСѓРєС‚СѓСЂРЅС‹Рµ': ['text_length', 'word_count', 'lexical_diversity'],
     }
     
     cat_shap = {}
@@ -133,13 +133,13 @@ def explain_prediction(text: str, model_path="cb_suicide_model.cbm",
     ax2.set_yticks(range(len(cat_df)))
     ax2.set_yticklabels(cat_df.index, fontsize=10)
     ax2.axvline(x=0, color='black', linewidth=0.8)
-    ax2.set_xlabel('Суммарное SHAP-влияние', fontsize=11)
-    ax2.set_title('Влияние по категориям', fontsize=12, fontweight='bold')
+    ax2.set_xlabel('РЎСѓРјРјР°СЂРЅРѕРµ SHAP-РІР»РёСЏРЅРёРµ', fontsize=11)
+    ax2.set_title('Р’Р»РёСЏРЅРёРµ РїРѕ РєР°С‚РµРіРѕСЂРёСЏРј', fontsize=12, fontweight='bold')
     ax2.invert_yaxis()
     
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    print(f"\nСохранено: {output_path}")
+    print(f"\nРЎРѕС…СЂР°РЅРµРЅРѕ: {output_path}")
     
     return shap_df, proba
 
@@ -147,13 +147,13 @@ def explain_prediction(text: str, model_path="cb_suicide_model.cbm",
 def batch_shap_analysis(texts: list, labels: list, model_path="cb_suicide_model.cbm",
                         output_path="shap_summary.png"):
     """
-    Создаёт summary plot для набора текстов (для курсовой).
+    РЎРѕР·РґР°С‘С‚ summary plot РґР»СЏ РЅР°Р±РѕСЂР° С‚РµРєСЃС‚РѕРІ (РґР»СЏ РєСѓСЂСЃРѕРІРѕР№).
     """
     print(f"\n{'='*60}")
-    print(f"SHAP Summary для {len(texts)} текстов")
+    print(f"SHAP Summary РґР»СЏ {len(texts)} С‚РµРєСЃС‚РѕРІ")
     print(f"{'='*60}")
     
-    # Загрузка
+    # Р—Р°РіСЂСѓР·РєР°
     model = CatBoostClassifier()
     model.load_model(model_path)
     
@@ -162,7 +162,7 @@ def batch_shap_analysis(texts: list, labels: list, model_path="cb_suicide_model.
     
     encoder = SentenceTransformer(config["embedding_model"])
     
-    # Создаём признаки
+    # РЎРѕР·РґР°С‘Рј РїСЂРёР·РЅР°РєРё
     X_list = []
     for text in texts:
         vec = encoder.encode([text], convert_to_numpy=True)
@@ -172,20 +172,20 @@ def batch_shap_analysis(texts: list, labels: list, model_path="cb_suicide_model.
     
     X_full = np.array(X_list)
     
-    # Получаем SHAP
+    # РџРѕР»СѓС‡Р°РµРј SHAP
     shap_values_full = model.get_feature_importance(
         data=shap.Pool(X_full),
         type="ShapValues"
     )
     
-    # Берём только лингвистические
-    meta_shap_all = shap_values_full[:, config["embedding_dim"]:, 1]  # класс 1 (риск)
+    # Р‘РµСЂС‘Рј С‚РѕР»СЊРєРѕ Р»РёРЅРіРІРёСЃС‚РёС‡РµСЃРєРёРµ
+    meta_shap_all = shap_values_full[:, config["embedding_dim"]:, 1]  # РєР»Р°СЃСЃ 1 (СЂРёСЃРє)
     X_meta = X_full[:, config["embedding_dim"]:]
     
     # Summary plot
     fig, ax = plt.subplots(figsize=(12, 10))
     
-    # Создаём summary вручную (более контролируемо)
+    # РЎРѕР·РґР°С‘Рј summary РІСЂСѓС‡РЅСѓСЋ (Р±РѕР»РµРµ РєРѕРЅС‚СЂРѕР»РёСЂСѓРµРјРѕ)
     shap_summary = pd.DataFrame(meta_shap_all, columns=FEATURE_NAMES)
     mean_abs_shap = shap_summary.abs().mean().sort_values(ascending=True).tail(20)
     
@@ -197,8 +197,8 @@ def batch_shap_analysis(texts: list, labels: list, model_path="cb_suicide_model.
     bars = ax.barh(range(len(mean_abs_shap)), mean_abs_shap.values, color=colors)
     ax.set_yticks(range(len(mean_abs_shap)))
     ax.set_yticklabels(mean_abs_shap.index, fontsize=10)
-    ax.set_xlabel('Mean |SHAP value| (среднее абс. влияние)', fontsize=12)
-    ax.set_title('Важность признаков (SHAP summary)\nTop-20 лингвистических маркеров', 
+    ax.set_xlabel('Mean |SHAP value| (СЃСЂРµРґРЅРµРµ Р°Р±СЃ. РІР»РёСЏРЅРёРµ)', fontsize=12)
+    ax.set_title('Р’Р°Р¶РЅРѕСЃС‚СЊ РїСЂРёР·РЅР°РєРѕРІ (SHAP summary)\nTop-20 Р»РёРЅРіРІРёСЃС‚РёС‡РµСЃРєРёС… РјР°СЂРєРµСЂРѕРІ', 
                  fontsize=14, fontweight='bold')
     
     for bar, val in zip(bars, mean_abs_shap.values):
@@ -207,7 +207,7 @@ def batch_shap_analysis(texts: list, labels: list, model_path="cb_suicide_model.
     
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    print(f"Сохранено: {output_path}")
+    print(f"РЎРѕС…СЂР°РЅРµРЅРѕ: {output_path}")
     
     return mean_abs_shap
 
@@ -217,22 +217,22 @@ def batch_shap_analysis(texts: list, labels: list, model_path="cb_suicide_model.
 # ==========================================
 
 if __name__ == "__main__":
-    # Пример: объяснение одного текста
-    test_text = "Мне кажется, всё потеряно. Я не вижу смысла продолжать. Жизнь бессмысленна."
+    # РџСЂРёРјРµСЂ: РѕР±СЉСЏСЃРЅРµРЅРёРµ РѕРґРЅРѕРіРѕ С‚РµРєСЃС‚Р°
+    test_text = "РњРЅРµ РєР°Р¶РµС‚СЃСЏ, РІСЃС‘ РїРѕС‚РµСЂСЏРЅРѕ. РЇ РЅРµ РІРёР¶Сѓ СЃРјС‹СЃР»Р° РїСЂРѕРґРѕР»Р¶Р°С‚СЊ. Р–РёР·РЅСЊ Р±РµСЃСЃРјС‹СЃР»РµРЅРЅР°."
     
     try:
         explain_prediction(test_text)
     except FileNotFoundError:
-        print("\nМодель не найдена. Сначала обучите: python run_all.py")
-        print("\nДемо без модели:")
+        print("\nРњРѕРґРµР»СЊ РЅРµ РЅР°Р№РґРµРЅР°. РЎРЅР°С‡Р°Р»Р° РѕР±СѓС‡РёС‚Рµ: python run_all.py")
+        print("\nР”РµРјРѕ Р±РµР· РјРѕРґРµР»Рё:")
         
-        # Показываем лингвистические признаки
+        # РџРѕРєР°Р·С‹РІР°РµРј Р»РёРЅРіРІРёСЃС‚РёС‡РµСЃРєРёРµ РїСЂРёР·РЅР°РєРё
         features = extract_features(test_text)
-        print(f"\nЛингвистические признаки для текста:")
+        print(f"\nР›РёРЅРіРІРёСЃС‚РёС‡РµСЃРєРёРµ РїСЂРёР·РЅР°РєРё РґР»СЏ С‚РµРєСЃС‚Р°:")
         print(f"  '{test_text}'")
         print(f"\n{'='*50}")
         
-        # Топ-10 признаков
+        # РўРѕРї-10 РїСЂРёР·РЅР°РєРѕРІ
         top_features = sorted(
             [(name, features[name]) for name in FEATURE_NAMES],
             key=lambda x: abs(x[1]),
@@ -240,5 +240,5 @@ if __name__ == "__main__":
         )[:10]
         
         for name, val in top_features:
-            direction = "^ повышает риск" if val > 0 else "v снижает риск"
+            direction = "^ РїРѕРІС‹С€Р°РµС‚ СЂРёСЃРє" if val > 0 else "v СЃРЅРёР¶Р°РµС‚ СЂРёСЃРє"
             print(f"  {name:30s}: {val:8.2f}  {direction}")

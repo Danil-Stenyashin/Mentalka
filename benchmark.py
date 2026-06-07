@@ -1,13 +1,13 @@
 """
-Скрипт для сравнительного бенчмаркинга моделей.
+РЎРєСЂРёРїС‚ РґР»СЏ СЃСЂР°РІРЅРёС‚РµР»СЊРЅРѕРіРѕ Р±РµРЅС‡РјР°СЂРєРёРЅРіР° РјРѕРґРµР»РµР№.
 
-Сравнивает:
-1. CatBoost (гибридная модель: эмбеддинги + лингв. признаки)
-2. RuBERT Fine-tuned (глубокое NLP)
-3. Logistic Regression на RuBERT [CLS] (baseline)
-4. Ансамбль (CatBoost + RuBERT)
+РЎСЂР°РІРЅРёРІР°РµС‚:
+1. CatBoost (РіРёР±СЂРёРґРЅР°СЏ РјРѕРґРµР»СЊ: СЌРјР±РµРґРґРёРЅРіРё + Р»РёРЅРіРІ. РїСЂРёР·РЅР°РєРё)
+2. RuBERT Fine-tuned (РіР»СѓР±РѕРєРѕРµ NLP)
+3. Logistic Regression РЅР° RuBERT [CLS] (baseline)
+4. РђРЅСЃР°РјР±Р»СЊ (CatBoost + RuBERT)
 
-Результаты сохраняются в results.json и results.png
+Р РµР·СѓР»СЊС‚Р°С‚С‹ СЃРѕС…СЂР°РЅСЏСЋС‚СЃСЏ РІ results.json Рё results.png
 """
 
 import json
@@ -23,14 +23,14 @@ from sklearn.metrics import (
 
 def run_benchmark(y_true, predictions_dict):
     """
-    Сравнивает модели и строит таблицу результатов.
+    РЎСЂР°РІРЅРёРІР°РµС‚ РјРѕРґРµР»Рё Рё СЃС‚СЂРѕРёС‚ С‚Р°Р±Р»РёС†Сѓ СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ.
     
     Args:
-        y_true: истинные метки
+        y_true: РёСЃС‚РёРЅРЅС‹Рµ РјРµС‚РєРё
         predictions_dict: {model_name: {'proba': [...], 'pred': [...]}}
     
     Returns:
-        DataFrame с метриками
+        DataFrame СЃ РјРµС‚СЂРёРєР°РјРё
     """
     results = []
     
@@ -39,7 +39,7 @@ def run_benchmark(y_true, predictions_dict):
         pred = np.array(preds['pred'])
         
         results.append({
-            'Модель': model_name,
+            'РњРѕРґРµР»СЊ': model_name,
             'Accuracy': round(accuracy_score(y_true, pred), 3),
             'Precision': round(precision_score(y_true, pred), 3),
             'Recall': round(recall_score(y_true, pred), 3),
@@ -49,27 +49,27 @@ def run_benchmark(y_true, predictions_dict):
     
     df = pd.DataFrame(results)
     
-    # Сортируем по F1
+    # РЎРѕСЂС‚РёСЂСѓРµРј РїРѕ F1
     df = df.sort_values('F1-score', ascending=False)
     
     print("\n" + "=" * 70)
-    print("СРАВНИТЕЛЬНАЯ ТАБЛИЦА МОДЕЛЕЙ")
+    print("РЎР РђР’РќРРўР•Р›Р¬РќРђРЇ РўРђР‘Р›РР¦Рђ РњРћР”Р•Р›Р•Р™")
     print("=" * 70)
     print(df.to_string(index=False))
     print("=" * 70)
     
-    # Сохраняем
+    # РЎРѕС…СЂР°РЅСЏРµРј
     df.to_csv("benchmark_results.csv", index=False, encoding='utf-8-sig')
     with open("benchmark_results.json", "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
     
-    print("Сохранено: benchmark_results.csv, benchmark_results.json")
+    print("РЎРѕС…СЂР°РЅРµРЅРѕ: benchmark_results.csv, benchmark_results.json")
     
     return df
 
 
 def plot_comparison(results_df, output_path="benchmark_chart.png"):
-    """Строит сравнительный график метрик."""
+    """РЎС‚СЂРѕРёС‚ СЃСЂР°РІРЅРёС‚РµР»СЊРЅС‹Р№ РіСЂР°С„РёРє РјРµС‚СЂРёРє."""
     
     metrics = ['Accuracy', 'Precision', 'Recall', 'F1-score', 'ROC-AUC']
     
@@ -79,36 +79,36 @@ def plot_comparison(results_df, output_path="benchmark_chart.png"):
     
     for i, metric in enumerate(metrics):
         ax = axes[i]
-        bars = ax.barh(results_df['Модель'], results_df[metric], color=colors[:len(results_df)])
+        bars = ax.barh(results_df['РњРѕРґРµР»СЊ'], results_df[metric], color=colors[:len(results_df)])
         ax.set_xlim(0, 1.05)
         ax.set_title(metric, fontweight='bold')
         ax.set_xlabel('Score')
         
-        # Добавляем значения на бары
+        # Р”РѕР±Р°РІР»СЏРµРј Р·РЅР°С‡РµРЅРёСЏ РЅР° Р±Р°СЂС‹
         for bar, val in zip(bars, results_df[metric]):
             ax.text(val + 0.02, bar.get_y() + bar.get_height()/2, 
                    f'{val:.3f}', va='center', fontsize=9)
     
-    plt.suptitle('Сравнение моделей выявления суицидальных текстов', 
+    plt.suptitle('РЎСЂР°РІРЅРµРЅРёРµ РјРѕРґРµР»РµР№ РІС‹СЏРІР»РµРЅРёСЏ СЃСѓРёС†РёРґР°Р»СЊРЅС‹С… С‚РµРєСЃС‚РѕРІ', 
                  fontsize=14, fontweight='bold', y=1.02)
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    print(f"График сохранён: {output_path}")
+    print(f"Р“СЂР°С„РёРє СЃРѕС…СЂР°РЅС‘РЅ: {output_path}")
     
     return fig
 
 
 def create_ensemble_predictions(y_true, cb_proba, rubert_proba, weights=[0.5, 0.5]):
     """
-    Создаёт ансамбль из CatBoost и RuBERT.
+    РЎРѕР·РґР°С‘С‚ Р°РЅСЃР°РјР±Р»СЊ РёР· CatBoost Рё RuBERT.
     
     Args:
-        cb_proba: вероятности CatBoost
-        rubert_proba: вероятности RuBERT
-        weights: веса [catboost_weight, rubert_weight]
+        cb_proba: РІРµСЂРѕСЏС‚РЅРѕСЃС‚Рё CatBoost
+        rubert_proba: РІРµСЂРѕСЏС‚РЅРѕСЃС‚Рё RuBERT
+        weights: РІРµСЃР° [catboost_weight, rubert_weight]
     
     Returns:
-        (proba, pred) ансамбля
+        (proba, pred) Р°РЅСЃР°РјР±Р»СЏ
     """
     cb_proba = np.array(cb_proba)
     rubert_proba = np.array(rubert_proba)
@@ -121,7 +121,7 @@ def create_ensemble_predictions(y_true, cb_proba, rubert_proba, weights=[0.5, 0.
 
 
 def find_best_ensemble_weights(y_true, cb_proba, rubert_proba):
-    """Подбирает оптимальные веса ансамбля по F1."""
+    """РџРѕРґР±РёСЂР°РµС‚ РѕРїС‚РёРјР°Р»СЊРЅС‹Рµ РІРµСЃР° Р°РЅСЃР°РјР±Р»СЏ РїРѕ F1."""
     
     best_f1 = 0
     best_weights = (0.5, 0.5)
@@ -135,24 +135,24 @@ def find_best_ensemble_weights(y_true, cb_proba, rubert_proba):
             best_f1 = f1
             best_weights = (w_cb, w_rubert)
     
-    print(f"\nОптимальные веса ансамбля: CatBoost={best_weights[0]:.2f}, RuBERT={best_weights[1]:.2f}")
-    print(f"Ансамбль F1: {best_f1:.3f}")
+    print(f"\nРћРїС‚РёРјР°Р»СЊРЅС‹Рµ РІРµСЃР° Р°РЅСЃР°РјР±Р»СЏ: CatBoost={best_weights[0]:.2f}, RuBERT={best_weights[1]:.2f}")
+    print(f"РђРЅСЃР°РјР±Р»СЊ F1: {best_f1:.3f}")
     
     return best_weights
 
 
 # ==========================================
-# ПРИМЕР ИСПОЛЬЗОВАНИЯ (для демо)
+# РџР РРњР•Р  РРЎРџРћР›Р¬Р—РћР’РђРќРРЇ (РґР»СЏ РґРµРјРѕ)
 # ==========================================
 
 if __name__ == "__main__":
-    print("Запустите этот скрипт после обучения всех моделей.")
-    print("\nПример использования:")
+    print("Р—Р°РїСѓСЃС‚РёС‚Рµ СЌС‚РѕС‚ СЃРєСЂРёРїС‚ РїРѕСЃР»Рµ РѕР±СѓС‡РµРЅРёСЏ РІСЃРµС… РјРѕРґРµР»РµР№.")
+    print("\nРџСЂРёРјРµСЂ РёСЃРїРѕР»СЊР·РѕРІР°РЅРёСЏ:")
     print("""
     from benchmark import run_benchmark, plot_comparison, create_ensemble_predictions
     
     predictions = {
-        'CatBoost (гибридная)': {
+        'CatBoost (РіРёР±СЂРёРґРЅР°СЏ)': {
             'proba': cb_proba,
             'pred': (cb_proba >= 0.5).astype(int)
         },
@@ -160,11 +160,11 @@ if __name__ == "__main__":
             'proba': rubert_proba,
             'pred': (rubert_proba >= 0.5).astype(int)
         },
-        'LogReg на RuBERT': {
+        'LogReg РЅР° RuBERT': {
             'proba': logreg_proba,
             'pred': (logreg_proba >= 0.5).astype(int)
         },
-        'Ансамбль (CatBoost + RuBERT)': {
+        'РђРЅСЃР°РјР±Р»СЊ (CatBoost + RuBERT)': {
             'proba': ensemble_proba,
             'pred': ensemble_pred
         },

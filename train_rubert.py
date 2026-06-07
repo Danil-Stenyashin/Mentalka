@@ -1,12 +1,12 @@
 """
-Fine-tuning RuBERT (DeepPavlov/rubert-base-cased) для классификации депрессивных текстов.
+Fine-tuning RuBERT (DeepPavlov/rubert-base-cased) РґР»СЏ РєР»Р°СЃСЃРёС„РёРєР°С†РёРё РґРµРїСЂРµСЃСЃРёРІРЅС‹С… С‚РµРєСЃС‚РѕРІ.
 
-Архитектура:
-1. RuBERT как feature extractor + classification head
-2. Или полный fine-tuning с заморозкой первых N слоёв
-3. Сравнение с baseline (Logistic Regression на embeddings)
+РђСЂС…РёС‚РµРєС‚СѓСЂР°:
+1. RuBERT РєР°Рє feature extractor + classification head
+2. РР»Рё РїРѕР»РЅС‹Р№ fine-tuning СЃ Р·Р°РјРѕСЂРѕР·РєРѕР№ РїРµСЂРІС‹С… N СЃР»РѕС‘РІ
+3. РЎСЂР°РІРЅРµРЅРёРµ СЃ baseline (Logistic Regression РЅР° embeddings)
 
-Требования:
+РўСЂРµР±РѕРІР°РЅРёСЏ:
     pip install transformers torch scikit-learn pandas numpy
 """
 
@@ -29,25 +29,25 @@ from tqdm import tqdm
 from dataset_loader import create_demo_dataset, create_train_test_split
 
 # ==========================================
-# КОНФИГУРАЦИЯ
+# РљРћРќР¤РР“РЈР РђР¦РРЇ
 # ==========================================
 
-MODEL_NAME = "DeepPavlov/rubert-base-cased"  # RuBERT от DeepPavlov
+MODEL_NAME = "DeepPavlov/rubert-base-cased"  # RuBERT РѕС‚ DeepPavlov
 MAX_LENGTH = 256
 BATCH_SIZE = 16
 LEARNING_RATE = 2e-5
 EPOCHS = 5
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-print(f"Устройство: {DEVICE}")
-print(f"Модель: {MODEL_NAME}")
+print(f"РЈСЃС‚СЂРѕР№СЃС‚РІРѕ: {DEVICE}")
+print(f"РњРѕРґРµР»СЊ: {MODEL_NAME}")
 
 # ==========================================
 # DATASET
 # ==========================================
 
 class TextDataset(Dataset):
-    """PyTorch Dataset для текстов."""
+    """PyTorch Dataset РґР»СЏ С‚РµРєСЃС‚РѕРІ."""
     
     def __init__(self, texts, labels, tokenizer, max_length=256):
         self.texts = texts
@@ -79,11 +79,11 @@ class TextDataset(Dataset):
 
 
 # ==========================================
-# ВАРИАНТ 1: Извлечение эмбеддингов + LogReg (baseline)
+# Р’РђР РРђРќРў 1: РР·РІР»РµС‡РµРЅРёРµ СЌРјР±РµРґРґРёРЅРіРѕРІ + LogReg (baseline)
 # ==========================================
 
 def extract_rubert_embeddings(texts, model, tokenizer, batch_size=16, max_length=256):
-    """Извлекает [CLS]-эмбеддинги из RuBERT."""
+    """РР·РІР»РµРєР°РµС‚ [CLS]-СЌРјР±РµРґРґРёРЅРіРё РёР· RuBERT."""
     model.eval()
     embeddings = []
     
@@ -112,23 +112,23 @@ def extract_rubert_embeddings(texts, model, tokenizer, batch_size=16, max_length
 
 
 def train_baseline_logreg(X_train, y_train, X_test, y_test):
-    """Baseline: Logistic Regression на RuBERT-эмбеддингах."""
+    """Baseline: Logistic Regression РЅР° RuBERT-СЌРјР±РµРґРґРёРЅРіР°С…."""
     print("\n" + "="*60)
-    print("BASELINE: Logistic Regression на RuBERT [CLS]")
+    print("BASELINE: Logistic Regression РЅР° RuBERT [CLS]")
     print("="*60)
     
-    print("Загружаем RuBERT (только энкодер)...")
+    print("Р—Р°РіСЂСѓР¶Р°РµРј RuBERT (С‚РѕР»СЊРєРѕ СЌРЅРєРѕРґРµСЂ)...")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     model = AutoModel.from_pretrained(MODEL_NAME).to(DEVICE)
     
-    print("Извлекаем эмбеддинги train...")
+    print("РР·РІР»РµРєР°РµРј СЌРјР±РµРґРґРёРЅРіРё train...")
     X_train_emb = extract_rubert_embeddings(X_train, model, tokenizer)
-    print("Извлекаем эмбеддинги test...")
+    print("РР·РІР»РµРєР°РµРј СЌРјР±РµРґРґРёРЅРіРё test...")
     X_test_emb = extract_rubert_embeddings(X_test, model, tokenizer)
     
-    print(f"Размерность эмбеддингов: {X_train_emb.shape}")
+    print(f"Р Р°Р·РјРµСЂРЅРѕСЃС‚СЊ СЌРјР±РµРґРґРёРЅРіРѕРІ: {X_train_emb.shape}")
     
-    print("Обучаем Logistic Regression...")
+    print("РћР±СѓС‡Р°РµРј Logistic Regression...")
     clf = LogisticRegression(max_iter=1000, class_weight="balanced", random_state=42)
     clf.fit(X_train_emb, y_train)
     
@@ -144,7 +144,7 @@ def train_baseline_logreg(X_train, y_train, X_test, y_test):
 
 
 # ==========================================
-# ВАРИАНТ 2: Полный fine-tuning RuBERT
+# Р’РђР РРђРќРў 2: РџРѕР»РЅС‹Р№ fine-tuning RuBERT
 # ==========================================
 
 class RuBERTClassifier(nn.Module):
@@ -165,24 +165,24 @@ class RuBERTClassifier(nn.Module):
 
 
 def train_rubert_finetune(X_train, y_train, X_test, y_test):
-    """Fine-tuning RuBERT с полным обучением."""
+    """Fine-tuning RuBERT СЃ РїРѕР»РЅС‹Рј РѕР±СѓС‡РµРЅРёРµРј."""
     print("\n" + "="*60)
-    print("FINE-TUNING: RuBERT с классификационной головой")
+    print("FINE-TUNING: RuBERT СЃ РєР»Р°СЃСЃРёС„РёРєР°С†РёРѕРЅРЅРѕР№ РіРѕР»РѕРІРѕР№")
     print("="*60)
     
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     
-    # Датасеты
+    # Р”Р°С‚Р°СЃРµС‚С‹
     train_dataset = TextDataset(X_train, y_train, tokenizer, MAX_LENGTH)
     test_dataset = TextDataset(X_test, y_test, tokenizer, MAX_LENGTH)
     
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
     
-    # Модель
+    # РњРѕРґРµР»СЊ
     model = RuBERTClassifier(MODEL_NAME).to(DEVICE)
     
-    # Оптимизатор
+    # РћРїС‚РёРјРёР·Р°С‚РѕСЂ
     optimizer = AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
     
     # Scheduler
@@ -293,19 +293,19 @@ def train_rubert_finetune(X_train, y_train, X_test, y_test):
     with open("rubert_model/config.json", "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
     
-    print("\n? RuBERT сохранён в rubert_model/")
+    print("\n? RuBERT СЃРѕС…СЂР°РЅС‘РЅ РІ rubert_model/")
     
     return model, tokenizer, all_probs
 
 
 # ==========================================
-# ВАРИАНТ 3: Лёгкий fine-tuning (freeze encoder)
+# Р’РђР РРђРќРў 3: Р›С‘РіРєРёР№ fine-tuning (freeze encoder)
 # ==========================================
 
 def train_rubert_light(X_train, y_train, X_test, y_test):
-    """Light fine-tuning: заморозка BERT, обучение только head."""
+    """Light fine-tuning: Р·Р°РјРѕСЂРѕР·РєР° BERT, РѕР±СѓС‡РµРЅРёРµ С‚РѕР»СЊРєРѕ head."""
     print("\n" + "="*60)
-    print("LIGHT FINE-TUNING: Заморозка RuBERT, обучаем только head")
+    print("LIGHT FINE-TUNING: Р—Р°РјРѕСЂРѕР·РєР° RuBERT, РѕР±СѓС‡Р°РµРј С‚РѕР»СЊРєРѕ head")
     print("="*60)
     
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -322,7 +322,7 @@ def train_rubert_light(X_train, y_train, X_test, y_test):
     for param in model.bert.parameters():
         param.requires_grad = False
     
-    print("Заморожено параметров BERT. Обучаем только классификационную голову.")
+    print("Р—Р°РјРѕСЂРѕР¶РµРЅРѕ РїР°СЂР°РјРµС‚СЂРѕРІ BERT. РћР±СѓС‡Р°РµРј С‚РѕР»СЊРєРѕ РєР»Р°СЃСЃРёС„РёРєР°С†РёРѕРЅРЅСѓСЋ РіРѕР»РѕРІСѓ.")
     
     optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=1e-3)
     criterion = nn.BCEWithLogitsLoss()
@@ -378,15 +378,15 @@ def train_rubert_light(X_train, y_train, X_test, y_test):
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("RuBERT Fine-tuning для анализа суицидальных текстов")
+    print("RuBERT Fine-tuning РґР»СЏ Р°РЅР°Р»РёР·Р° СЃСѓРёС†РёРґР°Р»СЊРЅС‹С… С‚РµРєСЃС‚РѕРІ")
     print("=" * 60)
     
-    # 1. Загрузка данных
-    print("\n[1/4] Загрузка данных...")
+    # 1. Р—Р°РіСЂСѓР·РєР° РґР°РЅРЅС‹С…
+    print("\n[1/4] Р—Р°РіСЂСѓР·РєР° РґР°РЅРЅС‹С…...")
     df = create_demo_dataset(samples_per_class=500)
     X_train, X_test, y_train, y_test = create_train_test_split(df, target_col='binary_label')
     
-    # 2. Baseline (LogReg на эмбеддингах)
+    # 2. Baseline (LogReg РЅР° СЌРјР±РµРґРґРёРЅРіР°С…)
     print("\n[2/4] Baseline: Logistic Regression...")
     clf, X_train_emb, X_test_emb, logreg_proba = train_baseline_logreg(X_train, y_train, X_test, y_test)
     
@@ -394,20 +394,20 @@ if __name__ == "__main__":
     print("\n[3/4] Fine-tuning RuBERT...")
     rubert_model, rubert_tokenizer, rubert_proba = train_rubert_finetune(X_train, y_train, X_test, y_test)
     
-    # 4. Сравнение
+    # 4. РЎСЂР°РІРЅРµРЅРёРµ
     print("\n" + "="*60)
-    print("СРАВНИТЕЛЬНАЯ ТАБЛИЦА")
+    print("РЎР РђР’РќРРўР•Р›Р¬РќРђРЇ РўРђР‘Р›РР¦Рђ")
     print("="*60)
-    print(f"{'Модель':<30} {'ROC-AUC':>10} {'F1':>10}")
+    print(f"{'РњРѕРґРµР»СЊ':<30} {'ROC-AUC':>10} {'F1':>10}")
     print("-" * 60)
     
     logreg_f1 = f1_score(y_test, (logreg_proba >= 0.5).astype(int))
     logreg_auc = roc_auc_score(y_test, logreg_proba)
-    print(f"{'LogReg на RuBERT [CLS]':<30} {logreg_auc:>10.3f} {logreg_f1:>10.3f}")
+    print(f"{'LogReg РЅР° RuBERT [CLS]':<30} {logreg_auc:>10.3f} {logreg_f1:>10.3f}")
     
     rubert_f1 = f1_score(y_test, (np.array(rubert_proba) >= 0.5).astype(int))
     rubert_auc = roc_auc_score(y_test, rubert_proba)
     print(f"{'Fine-tuned RuBERT':<30} {rubert_auc:>10.3f} {rubert_f1:>10.3f}")
     
     print("="*60)
-    print("\n? Готово! Модель сохранена в rubert_model/")
+    print("\n? Р“РѕС‚РѕРІРѕ! РњРѕРґРµР»СЊ СЃРѕС…СЂР°РЅРµРЅР° РІ rubert_model/")

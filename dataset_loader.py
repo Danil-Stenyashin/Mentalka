@@ -1,10 +1,10 @@
 """
-Загрузчик датасета "Suicide and Depression Detection" (Kaggle).
+Р—Р°РіСЂСѓР·С‡РёРє РґР°С‚Р°СЃРµС‚Р° "Suicide and Depression Detection" (Kaggle).
 
-Датасет содержит ~60K записей из соцсетей (Reddit):
-- Класс "suicide" — суицидальные посты
-- Класс "depression" — депрессивные посты  
-- Класс "normal" — обычные посты
+Р”Р°С‚Р°СЃРµС‚ СЃРѕРґРµСЂР¶РёС‚ ~60K Р·Р°РїРёСЃРµР№ РёР· СЃРѕС†СЃРµС‚РµР№ (Reddit):
+- РљР»Р°СЃСЃ "suicide" вЂ” СЃСѓРёС†РёРґР°Р»СЊРЅС‹Рµ РїРѕСЃС‚С‹
+- РљР»Р°СЃСЃ "depression" вЂ” РґРµРїСЂРµСЃСЃРёРІРЅС‹Рµ РїРѕСЃС‚С‹  
+- РљР»Р°СЃСЃ "normal" вЂ” РѕР±С‹С‡РЅС‹Рµ РїРѕСЃС‚С‹
 
 URL: https://www.kaggle.com/datasets/nikhileswarkomati/suicide-watch
 """
@@ -18,23 +18,23 @@ from typing import Tuple
 
 
 def clean_text(text: str) -> str:
-    """Очистка текста от шума Reddit."""
+    """РћС‡РёСЃС‚РєР° С‚РµРєСЃС‚Р° РѕС‚ С€СѓРјР° Reddit."""
     if not isinstance(text, str):
         return ""
     
-    # Удаляем URL
+    # РЈРґР°Р»СЏРµРј URL
     text = re.sub(r'http[s]?://\S+', '', text)
-    # Удаляем markdown ссылки [text](url)
+    # РЈРґР°Р»СЏРµРј markdown СЃСЃС‹Р»РєРё [text](url)
     text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
-    # Удаляем @username
+    # РЈРґР°Р»СЏРµРј @username
     text = re.sub(r'@\w+', '', text)
-    # Удаляем r/subreddit
+    # РЈРґР°Р»СЏРµРј r/subreddit
     text = re.sub(r'r/\w+', '', text)
-    # Заменяем множественные пробелы
+    # Р—Р°РјРµРЅСЏРµРј РјРЅРѕР¶РµСЃС‚РІРµРЅРЅС‹Рµ РїСЂРѕР±РµР»С‹
     text = re.sub(r'\s+', ' ', text)
-    # Удаляем лишние звёздочки markdown
+    # РЈРґР°Р»СЏРµРј Р»РёС€РЅРёРµ Р·РІС‘Р·РґРѕС‡РєРё markdown
     text = re.sub(r'\*+', '', text)
-    # Обрезаем края
+    # РћР±СЂРµР·Р°РµРј РєСЂР°СЏ
     text = text.strip()
     
     return text
@@ -42,13 +42,13 @@ def clean_text(text: str) -> str:
 
 def load_suicide_dataset(csv_path: str) -> pd.DataFrame:
     """
-    Загружает CSV с Kaggle-датасета и подготавливает.
+    Р—Р°РіСЂСѓР¶Р°РµС‚ CSV СЃ Kaggle-РґР°С‚Р°СЃРµС‚Р° Рё РїРѕРґРіРѕС‚Р°РІР»РёРІР°РµС‚.
     
-    Ожидаемые колонки: 'text', 'class' (или аналогичные)
+    РћР¶РёРґР°РµРјС‹Рµ РєРѕР»РѕРЅРєРё: 'text', 'class' (РёР»Рё Р°РЅР°Р»РѕРіРёС‡РЅС‹Рµ)
     """
     df = pd.read_csv(csv_path)
     
-    # Определяем колонки автоматически
+    # РћРїСЂРµРґРµР»СЏРµРј РєРѕР»РѕРЅРєРё Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё
     text_col = None
     class_col = None
     
@@ -60,32 +60,32 @@ def load_suicide_dataset(csv_path: str) -> pd.DataFrame:
             class_col = col
     
     if text_col is None:
-        # Предполагаем, что первая текстовая колонка
+        # РџСЂРµРґРїРѕР»Р°РіР°РµРј, С‡С‚Рѕ РїРµСЂРІР°СЏ С‚РµРєСЃС‚РѕРІР°СЏ РєРѕР»РѕРЅРєР°
         for col in df.columns:
             if df[col].dtype == object and df[col].str.len().mean() > 50:
                 text_col = col
                 break
     
     if class_col is None:
-        # Предполагаем, что первая категориальная
+        # РџСЂРµРґРїРѕР»Р°РіР°РµРј, С‡С‚Рѕ РїРµСЂРІР°СЏ РєР°С‚РµРіРѕСЂРёР°Р»СЊРЅР°СЏ
         for col in df.columns:
             if df[col].dtype == object and df[col].nunique() < 20:
                 class_col = col
                 break
     
-    print(f"Найдены колонки: text='{text_col}', class='{class_col}'")
-    print(f"Классы: {df[class_col].value_counts().to_dict()}")
+    print(f"РќР°Р№РґРµРЅС‹ РєРѕР»РѕРЅРєРё: text='{text_col}', class='{class_col}'")
+    print(f"РљР»Р°СЃСЃС‹: {df[class_col].value_counts().to_dict()}")
     
-    # Очистка текста
+    # РћС‡РёСЃС‚РєР° С‚РµРєСЃС‚Р°
     df['text_clean'] = df[text_col].apply(clean_text)
     
-    # Фильтрация коротких текстов
+    # Р¤РёР»СЊС‚СЂР°С†РёСЏ РєРѕСЂРѕС‚РєРёС… С‚РµРєСЃС‚РѕРІ
     df = df[df['text_clean'].str.len() >= 20].copy()
     
-    # Удаление дубликатов
+    # РЈРґР°Р»РµРЅРёРµ РґСѓР±Р»РёРєР°С‚РѕРІ
     df = df.drop_duplicates(subset=['text_clean'])
     
-    # Нормализация меток
+    # РќРѕСЂРјР°Р»РёР·Р°С†РёСЏ РјРµС‚РѕРє
     def normalize_label(label):
         label = str(label).lower().strip()
         if 'suicide' in label or 'suicid' in label:
@@ -97,20 +97,20 @@ def load_suicide_dataset(csv_path: str) -> pd.DataFrame:
     
     df['label'] = df[class_col].apply(normalize_label)
     
-    # Бинарная задача: suicide vs rest (для демо)
-    # Или мультикласс
+    # Р‘РёРЅР°СЂРЅР°СЏ Р·Р°РґР°С‡Р°: suicide vs rest (РґР»СЏ РґРµРјРѕ)
+    # РР»Рё РјСѓР»СЊС‚РёРєР»Р°СЃСЃ
     df['binary_label'] = (df['label'] == 'suicide').astype(int)
     df['depression_label'] = ((df['label'] == 'suicide') | (df['label'] == 'depression')).astype(int)
     
-    print(f"\nИтоговый датасет: {len(df)} записей")
-    print(f"Распределение:\n{df['label'].value_counts()}")
+    print(f"\nРС‚РѕРіРѕРІС‹Р№ РґР°С‚Р°СЃРµС‚: {len(df)} Р·Р°РїРёСЃРµР№")
+    print(f"Р Р°СЃРїСЂРµРґРµР»РµРЅРёРµ:\n{df['label'].value_counts()}")
     
     return df[['text_clean', 'label', 'binary_label', 'depression_label']].copy()
 
 
 def create_train_test_split(df: pd.DataFrame, target_col: str = 'binary_label', 
                             test_size: float = 0.2, random_state: int = 42) -> Tuple:
-    """Разделяет данные на train/test со стратификацией."""
+    """Р Р°Р·РґРµР»СЏРµС‚ РґР°РЅРЅС‹Рµ РЅР° train/test СЃРѕ СЃС‚СЂР°С‚РёС„РёРєР°С†РёРµР№."""
     X = df['text_clean'].values
     y = df[target_col].values
     
@@ -118,7 +118,7 @@ def create_train_test_split(df: pd.DataFrame, target_col: str = 'binary_label',
         X, y, test_size=test_size, random_state=random_state, stratify=y
     )
     
-    print(f"\nРазделение: train={len(X_train)}, test={len(X_test)}")
+    print(f"\nР Р°Р·РґРµР»РµРЅРёРµ: train={len(X_train)}, test={len(X_test)}")
     print(f"Train: {np.bincount(y_train)}")
     print(f"Test: {np.bincount(y_test)}")
     
@@ -126,7 +126,7 @@ def create_train_test_split(df: pd.DataFrame, target_col: str = 'binary_label',
 
 
 # ==========================================
-# ДЕМО-ЗАГРУЗКА (без внешнего файла)
+# Р”Р•РњРћ-Р—РђР“Р РЈР—РљРђ (Р±РµР· РІРЅРµС€РЅРµРіРѕ С„Р°Р№Р»Р°)
 # ==========================================
 
 SAMPLE_SUICIDE = [
@@ -187,20 +187,20 @@ SAMPLE_NORMAL = [
 def create_demo_dataset(output_path: str = "demo_dataset.csv", 
                         samples_per_class: int = 500) -> pd.DataFrame:
     """
-    Создаёт расширенный демо-датасет (для тестирования без Kaggle).
+    РЎРѕР·РґР°С‘С‚ СЂР°СЃС€РёСЂРµРЅРЅС‹Р№ РґРµРјРѕ-РґР°С‚Р°СЃРµС‚ (РґР»СЏ С‚РµСЃС‚РёСЂРѕРІР°РЅРёСЏ Р±РµР· Kaggle).
     """
     np.random.seed(42)
     
     texts = []
     labels = []
     
-    # Расширяем демо-примеры случайными модификациями
+    # Р Р°СЃС€РёСЂСЏРµРј РґРµРјРѕ-РїСЂРёРјРµСЂС‹ СЃР»СѓС‡Р°Р№РЅС‹РјРё РјРѕРґРёС„РёРєР°С†РёСЏРјРё
     for base_texts, label in [(SAMPLE_SUICIDE, 'suicide'), 
                                (SAMPLE_DEPRESSION, 'depression'),
                                (SAMPLE_NORMAL, 'normal')]:
         for _ in range(samples_per_class):
             base = np.random.choice(base_texts)
-            # Добавляем небольшой шум
+            # Р”РѕР±Р°РІР»СЏРµРј РЅРµР±РѕР»СЊС€РѕР№ С€СѓРј
             texts.append(base)
             labels.append(label)
     
@@ -208,21 +208,21 @@ def create_demo_dataset(output_path: str = "demo_dataset.csv",
     df['binary_label'] = (df['label'] == 'suicide').astype(int)
     df['depression_label'] = ((df['label'] == 'suicide') | (df['label'] == 'depression')).astype(int)
     
-    # Добавляем русские тексты (для мультиязычности)
+    # Р”РѕР±Р°РІР»СЏРµРј СЂСѓСЃСЃРєРёРµ С‚РµРєСЃС‚С‹ (РґР»СЏ РјСѓР»СЊС‚РёСЏР·С‹С‡РЅРѕСЃС‚Рё)
     russian_suicide = [
-        "Я больше не могу так жить. Всё потеряно и я хочу покончить с собой.",
-        "Никто не заметит если я умру. Я обуза для всех вокруг.",
-        "Я купил верёвку. Думаю сегодня ночью сделать это.",
-        "Жизнь не имеет смысла. Я закончил. Прощай мир.",
-        "Я написал записку. Я готов. Прости мама.",
+        "РЇ Р±РѕР»СЊС€Рµ РЅРµ РјРѕРіСѓ С‚Р°Рє Р¶РёС‚СЊ. Р’СЃС‘ РїРѕС‚РµСЂСЏРЅРѕ Рё СЏ С…РѕС‡Сѓ РїРѕРєРѕРЅС‡РёС‚СЊ СЃ СЃРѕР±РѕР№.",
+        "РќРёРєС‚Рѕ РЅРµ Р·Р°РјРµС‚РёС‚ РµСЃР»Рё СЏ СѓРјСЂСѓ. РЇ РѕР±СѓР·Р° РґР»СЏ РІСЃРµС… РІРѕРєСЂСѓРі.",
+        "РЇ РєСѓРїРёР» РІРµСЂС‘РІРєСѓ. Р”СѓРјР°СЋ СЃРµРіРѕРґРЅСЏ РЅРѕС‡СЊСЋ СЃРґРµР»Р°С‚СЊ СЌС‚Рѕ.",
+        "Р–РёР·РЅСЊ РЅРµ РёРјРµРµС‚ СЃРјС‹СЃР»Р°. РЇ Р·Р°РєРѕРЅС‡РёР». РџСЂРѕС‰Р°Р№ РјРёСЂ.",
+        "РЇ РЅР°РїРёСЃР°Р» Р·Р°РїРёСЃРєСѓ. РЇ РіРѕС‚РѕРІ. РџСЂРѕСЃС‚Рё РјР°РјР°.",
     ] * (samples_per_class // 5)
     
     russian_normal = [
-        "Отличный день на пляже с друзьями! Погода идеальная.",
-        "Закончил тренировку. Чувствую себя сильным и энергичным!",
-        "Взволнован новой работой. Собеседование прошло отлично.",
-        "Моя собака выучила новый трюк. Так горжусь ей!",
-        "Наконец прочитал ту книгу. Она потрясающая.",
+        "РћС‚Р»РёС‡РЅС‹Р№ РґРµРЅСЊ РЅР° РїР»СЏР¶Рµ СЃ РґСЂСѓР·СЊСЏРјРё! РџРѕРіРѕРґР° РёРґРµР°Р»СЊРЅР°СЏ.",
+        "Р—Р°РєРѕРЅС‡РёР» С‚СЂРµРЅРёСЂРѕРІРєСѓ. Р§СѓРІСЃС‚РІСѓСЋ СЃРµР±СЏ СЃРёР»СЊРЅС‹Рј Рё СЌРЅРµСЂРіРёС‡РЅС‹Рј!",
+        "Р’Р·РІРѕР»РЅРѕРІР°РЅ РЅРѕРІРѕР№ СЂР°Р±РѕС‚РѕР№. РЎРѕР±РµСЃРµРґРѕРІР°РЅРёРµ РїСЂРѕС€Р»Рѕ РѕС‚Р»РёС‡РЅРѕ.",
+        "РњРѕСЏ СЃРѕР±Р°РєР° РІС‹СѓС‡РёР»Р° РЅРѕРІС‹Р№ С‚СЂСЋРє. РўР°Рє РіРѕСЂР¶СѓСЃСЊ РµР№!",
+        "РќР°РєРѕРЅРµС† РїСЂРѕС‡РёС‚Р°Р» С‚Сѓ РєРЅРёРіСѓ. РћРЅР° РїРѕС‚СЂСЏСЃР°СЋС‰Р°СЏ.",
     ] * (samples_per_class // 5)
     
     df_ru = pd.DataFrame({
@@ -236,15 +236,15 @@ def create_demo_dataset(output_path: str = "demo_dataset.csv",
     df = df.sample(frac=1, random_state=42).reset_index(drop=True)
     
     df.to_csv(output_path, index=False, encoding='utf-8')
-    print(f"Демо-датасет сохранён: {output_path} ({len(df)} записей)")
-    print(f"Распределение:\n{df['label'].value_counts()}")
+    print(f"Р”РµРјРѕ-РґР°С‚Р°СЃРµС‚ СЃРѕС…СЂР°РЅС‘РЅ: {output_path} ({len(df)} Р·Р°РїРёСЃРµР№)")
+    print(f"Р Р°СЃРїСЂРµРґРµР»РµРЅРёРµ:\n{df['label'].value_counts()}")
     
     return df
 
 
 if __name__ == "__main__":
-    # Создаём демо-датасет
+    # РЎРѕР·РґР°С‘Рј РґРµРјРѕ-РґР°С‚Р°СЃРµС‚
     df = create_demo_dataset()
     
-    # Тест разделения
+    # РўРµСЃС‚ СЂР°Р·РґРµР»РµРЅРёСЏ
     X_train, X_test, y_train, y_test = create_train_test_split(df, target_col='binary_label')
